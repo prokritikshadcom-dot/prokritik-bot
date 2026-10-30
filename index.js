@@ -82,6 +82,9 @@ app.post('/webhook', async (req, res) => {
 
         const phoneRegex = /(01[3-9]\d{8})/;
         const isOrderKeyword = lowerText.includes("অর্ডার") || lowerText.includes("কিনব") || lowerText.includes("নিতে চাই") || lowerText.includes("order");
+        
+        // সাধারণ অভিবাদন বা হাই/হ্যালো শনাক্তকরণ
+        const isGreeting = lowerText === "হাই" || lowerText === "হ্যালো" || lowerText === "hi" || lowerText === "hello" || lowerText.includes("আসসালামু") || lowerText === "hey";
 
         // কাস্টমার যদি মোবাইল নম্বর ও ঠিকানা দিয়ে মেসেজ পাঠায়
         if (phoneRegex.test(messageText)) {
@@ -115,6 +118,16 @@ app.post('/webhook', async (req, res) => {
                            `আমাদের প্রতিনিধি খুব দ্রুত আপনার সাথে কল/মেসেজে যোগাযোগ করে পণ্যের নাম, সাইজ ও সর্বমোট বিল নিশ্চিত করবেন।\n\n` +
                            `📞 সরাসরি হেল্পলাইন/হোয়াটসঅ্যাপ: 01335556732`;
           }
+
+        } else if (isGreeting) {
+          // ওয়েলকাম মেসেজ
+          replyMessage = `আসসালামু আলাইকুম! 'প্রাকৃতিক স্বাদ'-এ আপনাকে স্বাগতম। 🌿\n\n` +
+                         `আমাদের ১০০% খাঁটি প্রাকৃতিক পণ্যগুলোর তথ্য জানতে নিচে যা লিখে মেসেজ দিতে পারেন:\n` +
+                         `• 'মధు' (সব মধুর তালিকা ও দাম দেখতে)\n` +
+                         `• 'সরিষা ফুল', 'কালোজিরা' বা 'সুন্দরবন' (নির্দিষ্ট মধুর দাম দেখতে)\n` +
+                         `• 'গাওয়া ঘি' বা 'খেজুরের গুড়'\n\n` +
+                         `স্যার, আপনি কোন পণ্যটি নিতে চাচ্ছেন?\n` +
+                         `🌐 আমাদের ওয়েবসাইট ভিজিট করুন: https://prokritikshad.com`;
 
         } else if (isOrderKeyword) {
           const session = userSessions[senderPsid];
@@ -151,13 +164,12 @@ app.post('/webhook', async (req, res) => {
                              `আপনার পছন্দের মধুর নাম লিখে মেসেজ দিন (যেমন: 'সরিষা ফুল' বা 'কালোজিরা')। আমরা সব সাইজ ও দাম জানিয়ে দেবো।`;
 
             } else {
-              // কাস্টমার নির্দিষ্ট কোনো মধুর নাম বললে (যেমন: "সরিষা", "কালোজিরা", "সুন্দরবন", "ঘি", "গুড়" ইত্যাদি)
+              // কাস্টমার নির্দিষ্ট কোনো পণ্যের নাম বললে
               const matchedProducts = products.filter(p => 
                 p.name && p.name.toLowerCase().includes(lowerText)
               );
 
               if (matchedProducts.length > 0) {
-                // সেশনে ওই মধুর সবকটি সাইজ সেভ রাখা হলো
                 userSessions[senderPsid] = { matchedProducts: matchedProducts };
 
                 replyMessage = `আমাদের উপলব্ধ সবকটি সাইজ ও মূল্য তালিকা:\n\n`;
