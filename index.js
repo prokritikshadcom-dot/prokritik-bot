@@ -18,19 +18,19 @@ function convertBengaliToEnglishNumbers(str) {
   return str.replace(/[০-৯]/g, (w) => banglaNums.indexOf(w));
 }
 
-// বাংলা টেক্সট, ইউনিকোড নুকতা ও 'ড়/র' ফিক্স ফাংশন
+// বাংলা টেক্সট ও সাইজ নরমালাইজেশন
 function normalizeBengaliText(text) {
   if (!text) return "";
   return text
     .normalize('NFC')
     .replace(/ে\u09BE|\u09BEে|ো/g, 'ো')
-    .replace(/\u09A1\u09BC/g, 'ড়') // ড + ় -> ড়
-    .replace(/\u09A2\u09BC/g, 'ঢ়') // ঢ + ় -> ঢ়
-    .replace(/\u09AF\u09BC/g, 'য়') // য + ় -> য়
-    .replace(/বরই/g, 'বড়ই')         // 'বরই' কে 'বড়ই' এ রূপান্তর
+    .replace(/\u09A1\u09BC/g, 'ড়')
+    .replace(/\u09A2\u09BC/g, 'ঢ়')
+    .replace(/\u09AF\u09BC/g, 'য়')
+    .replace(/বরই/g, 'বড়ই')
     .replace(/সুন্দর\s*বনের|সুন্দর\s*বন/g, 'সুন্দরবন')
     .replace(/এক\s*কেজি|১\s*কেজি|1\s*kg|1kg/gi, '১কেজি')
-    .replace(/হাফ\s*কেজি|হাফ\s*কেজী|৫০০\s*গ্রাম|500g|500\s*gram/gi, '৫০০গ্রাম')
+    .replace(/হাফ\s*কেজি|হাফ\s*কেজী|৫০০\s*গ্রাম|500g|500\s*gram|হাফ/gi, '৫০০গ্রাম')
     .toLowerCase()
     .trim();
 }
@@ -104,8 +104,48 @@ app.post('/webhook', async (req, res) => {
         const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("কত") || cleanUserText === "মధు" || cleanUserText === "modhu" || cleanUserText === "honey";
         const isComboAsk = cleanUserText === "কম্বো" || cleanUserText === "কম্বো প্যাক" || cleanUserText === "অফার";
 
-        // ১. কাস্টমার ফোন নম্বর ও ঠিকানা পাঠালে
-        if (isPhoneProvided) {
+        // চলমান সেশন পাওয়ার ব্যবস্থা
+        const activeSession = userSessions[senderPsid];
+
+        // শর্ট রিপ্লাই চেক (হাফ, 500, 1, ১ ইত্যাদি)
+        const is1kgIntent = cleanUserText === "১" || cleanUserText === "1" || cleanUserText.includes("১কেজি") || cleanUserText === "এক";
+        const is500gIntent = cleanUserText === "হাফ" || cleanUserText === "500" || cleanUserText === "৫০০" || cleanUserText.includes("৫০০গ্রাম") || cleanUserText === "half";
+
+        // কাস্টমার যদি শর্ট সাইজ মেসেজ দেয় (যেমন: "হাফ", "500", "1") এবং আগে সেশন থাকে
+        if (activeSession && activeSession.matchedProducts && activeSession.matchedProducts.length > 0 && (is1kgIntent || is500gIntent)) {
+          let selectedProduct = null;
+          if (is1kgIntent) {
+            selectedProduct = activeSession.matchedProducts.find(p => normalizeBengaliText(p.name).includes("১কেজি")) || activeSession.matchedProducts[0];
+          } else if (is500gIntent) {
+            selectedProduct = activeSession.matchedProducts.find(p => normalizeBengaliText(p.name).includes("৫০০গ্রাম")) || activeSession.matchedProducts[activeSession.matchedProducts.length - 1];
+          }
+
+          if (selectedProduct) {
+            const productPrice = parseFloat(selectedProduct.price.toString().replace(/[^0-9.]/g, '')) || 0;
+            const totalPrice = productPrice + DELIVERY_CHARGE;
+
+            if (activeSession.pendingInfo) {
+              replyMessage = `🎉 আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে!\n\n` +
+                             `📦 অর্ডারের বিবরণ:\n` +
+                             `• পণ্য: ${selectedProduct.name}\n` +
+                             `• মূল্য: ৳${productPrice}\n` +
+                             `• ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n` +
+                             `──────────────────\n` +
+                             `💰 সর্বমোট বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice}\n\n` +
+                             `📝 আপনার দেওয়া তথ্য:\n${activeSession.pendingInfo}\n\n` +
+                             `আমাদের প্রতিনিধি কল করে আপনার অর্ডারটি নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
+                             `📞 হেল্পলাইন/হোয়াটসঅ্যাপ: 01335556732`;
+              delete userSessions[senderPsid];
+            } else {
+              activeSession.matchedProducts = [selectedProduct];
+              replyMessage = `আপনি নির্বাচন করেছেন: ${selectedProduct.name} (৳${productPrice})\n\n` +
+                             `অর্ডার সম্পন্ন করতে অনুগ্রহ করে আপনার নাম, মোবাইল নম্বর ও পূর্ণাঙ্গ ঠিকানা লিখে মেসেজ দিন।\n\n` +
+                             `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}`;
+            }
+          }
+
+        } else if (isPhoneProvided) {
+          // ১. কাস্টমার ফোন নম্বর ও ঠিকানা পাঠালে
           const session = userSessions[senderPsid] || {};
           session.pendingInfo = messageText;
 
@@ -143,7 +183,7 @@ app.post('/webhook', async (req, res) => {
             let optionsText = matched.map(p => `• ${p.name} - ৳${p.price}`).join('\n');
             replyMessage = `🎉 আপনার নাম, ঠিকানা ও মোবাইল নম্বর আমরা পেয়েছি!\n\n` +
                            `অনুগ্রহ করে জানান আপনি কোন সাইজটি নিতে চাচ্ছেন?\n${optionsText}\n\n` +
-                           `সাইজটি (যেমন: '১ কেজি' বা '৫০০ গ্রাম') জানালেই আমরা অর্ডার নিশ্চিত করে দেবো।`;
+                           `সাইজটি (যেমন: '১ কেজি' বা '৫০০ গ্রাম' বা 'হাফ') জানালেই আমরা অর্ডার নিশ্চিত করে দেবো।`;
           } else {
             userSessions[senderPsid] = session;
             replyMessage = `🎉 আপনার নাম, ঠিকানা ও মোবাইল নম্বর আমরা পেয়েছি!\n\n` +
@@ -260,7 +300,6 @@ app.post('/webhook', async (req, res) => {
                 matchedProducts = flowerFiltered;
 
               } else {
-                // কি-ওয়ার্ড ডায়নামিক ফিল্টার (ফ্ল্যাঙ্কব্যাক)
                 const stopWords = ["ফুলের", "মধু", "এর", "দাম", "কত", "চাই", "নেব", "অর্ডার", "কেজি", "গ্রাম", "১কেজি", "১", "কেজী", "পণ্য"];
                 const searchWords = cleanUserText.split(/\s+/).filter(w => w.length > 1 && !stopWords.includes(w));
 
