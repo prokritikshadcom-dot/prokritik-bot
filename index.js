@@ -9,20 +9,19 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'prokritik123';
 
 const DELIVERY_CHARGE = 120; // ডেলিভারি চার্জ ৳১২০
 
-// কাস্টমারের পছন্দকৃত পণ্য মনে রাখার সেশন
 const userSessions = {};
 
-// বাংলা ফন্ট ও ইউনিকোড সঠিকভাবে মেলানোর ফাংশন
+// বাংলা ফন্ট, স্পেস ও ইউনিকোড সঠিকভাবে মেলানোর স্মার্ট ফাংশন
 function normalizeBengaliText(text) {
   if (!text) return "";
   return text
     .normalize('NFC')
-    .replace(/ে\u09BE|\u09BEে|ো/g, 'ো') // 'ে' + 'া' মিলিয়ে 'ো' কারে রূপান্তর
+    .replace(/ে\u09BE|\u09BEে|ো/g, 'ো')
+    .replace(/সুন্দর\s*বনের|সুন্দর\s*বন/g, 'সুন্দরবন') // সুন্দর ও বন-এর মাঝের স্পেস ফিক্স
     .toLowerCase()
     .trim();
 }
 
-// ১. মেটা ওয়েবহুক ভেরিফিকেশন
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -30,7 +29,6 @@ app.get('/webhook', (req, res) => {
 
   if (mode && token) {
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-      console.log('WEBHOOK_VERIFIED');
       res.status(200).send(challenge);
     } else {
       res.sendStatus(403);
@@ -38,7 +36,6 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// ২. ওয়েবসাইট থেকে ডাটা আনার ফাংশন
 async function fetchProductsFromWebsite() {
   try {
     const response = await fetch('https://prokritikshad.com/products_api.php');
@@ -50,7 +47,6 @@ async function fetchProductsFromWebsite() {
   }
 }
 
-// ৩. মেসেঞ্জারে উত্তর পাঠানোর ফাংশন
 async function sendTextMessage(senderPsid, text) {
   const requestBody = {
     recipient: { id: senderPsid },
@@ -58,23 +54,16 @@ async function sendTextMessage(senderPsid, text) {
   };
 
   try {
-    const response = await fetch(`https://graph.facebook.com/v18.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
+    await fetch(`https://graph.facebook.com/v18.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody)
     });
-    const data = await response.json();
-    if (data.error) {
-      console.error('Facebook Send API Error:', data.error);
-    } else {
-      console.log('Message sent successfully!');
-    }
   } catch (err) {
     console.error('Error sending message:', err);
   }
 }
 
-// ৪. মূল মেসেজ প্রসেসিং
 app.post('/webhook', async (req, res) => {
   const body = req.body;
 
@@ -92,23 +81,13 @@ app.post('/webhook', async (req, res) => {
 
         const phoneRegex = /(01[3-9]\d{8})/;
         const isOrderKeyword = cleanUserText.includes("অর্ডার") || cleanUserText.includes("কিনব") || cleanUserText.includes("নিতে চাই") || cleanUserText.includes("order");
-        
-        // সাধারণ সালাম বা হাই
         const isGreeting = cleanUserText === "হাই" || cleanUserText === "হ্যালো" || cleanUserText === "hi" || cleanUserText === "hello" || cleanUserText.includes("আসসালামু") || cleanUserText === "hey";
-
-        // চার্ট বা সকল পণ্যের মূল্য তালিকা সংক্রান্ত প্রশ্ন
-        const isChartAsk = cleanUserText.includes("চার্ট") || cleanUserText.includes("মূল্য তালিকা") || cleanUserText.includes("মূল্যতালিকা") || cleanUserText.includes("প্রাইস লিস্ট") || cleanUserText.includes("প্রাইস তালিকা") || cleanUserText.includes("সকল পণ্য") || cleanUserText.includes("সব পণ্য") || cleanUserText.includes("লিস্ট") || cleanUserText.includes("chart") || cleanUserText.includes("price list");
-
-        // সাধারণ দাম জানার প্রশ্ন
+        const isChartAsk = cleanUserText.includes("চার্ট") || cleanUserText.includes("মূল্য তালিকা") || cleanUserText.includes("মূল্যতালিকা") || cleanUserText.includes("প্রাইস লিস্ট") || cleanUserText.includes("সকল পণ্য") || cleanUserText.includes("সব পণ্য") || cleanUserText.includes("লিস্ট") || cleanUserText.includes("chart");
         const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("কত") || cleanUserText === "মధు" || cleanUserText === "modhu" || cleanUserText === "honey";
+        const isComboAsk = cleanUserText === "কম্বো" || cleanUserText === "কম্বো প্যাক" || cleanUserText === "অফার";
 
-        // কম্বো বা অফার সংক্রান্ত প্রশ্ন
-        const isComboAsk = cleanUserText.includes("কম্বো") || cleanUserText.includes("প্যাক") || cleanUserText.includes("অফার") || cleanUserText.includes("combo") || cleanUserText.includes("offer") || cleanUserText.includes("pack");
-
-        // কাস্টমার যদি মোবাইল নম্বর ও ঠিকানা দিয়ে মেসেজ পাঠায় (অর্ডার কনফার্মেশন)
         if (phoneRegex.test(messageText)) {
           const session = userSessions[senderPsid];
-          
           if (session && session.matchedProducts && session.matchedProducts.length > 0) {
             let productListText = "";
             let basePrices = [];
@@ -148,16 +127,19 @@ app.post('/webhook', async (req, res) => {
                          `🌐 ওয়েবসাইট: https://prokritikshad.com`;
 
         } else if (isChartAsk) {
-          // ওয়েবসাইট থেকে সকল পণ্যের মূল্য তালিকা বানিয়ে দেওয়া
           const products = await fetchProductsFromWebsite();
 
           if (products && Array.isArray(products) && products.length > 0) {
-            replyMessage = `📋 'প্রাকৃতিক স্বাদ'-এর সকল পণ্যের মূল্য তালিকা:\n\n`;
+            replyMessage = `📜 'প্রাকৃতিক স্বাদ' - পণ্যের মূল্য তালিকা 🌿\n` +
+                           `═════════════════════\n\n`;
+
             products.forEach((p, index) => {
-              replyMessage += `${index + 1}. ${p.name} - ৳${p.price}\n`;
+              replyMessage += `🔹 ${index + 1}. ${p.name}\n` +
+                              `   💰 মূল্য: ৳${p.price}\n\n`;
             });
 
-            replyMessage += `\n🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
+            replyMessage += `═════════════════════\n` +
+                           `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
                            `📦 যেকোনো পণ্য অর্ডার করতে আপনার নাম, মোবাইল নম্বর ও ঠিকানা লিখে পাঠাই দিন।\n` +
                            `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
           } else {
@@ -180,17 +162,15 @@ app.post('/webhook', async (req, res) => {
                          `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
 
         } else {
-          // ওয়েবসাইট থেকে নির্দিষ্ট পণ্য ফিল্টার করা
           const products = await fetchProductsFromWebsite();
 
           if (products && Array.isArray(products) && products.length > 0) {
             
-            // কম্বো বা অফার সেকশন
             if (isComboAsk) {
               const comboProducts = products.filter(p => {
                 if (!p.name) return false;
                 const cleanName = normalizeBengaliText(p.name);
-                return cleanName.includes("কম্বো") || cleanName.includes("প্যাক") || cleanName.includes("ফ্রি") || cleanName.includes("+") || cleanName.includes("অফার") || cleanName.includes("combo") || cleanName.includes("pack");
+                return cleanName.includes("কম্বো") || cleanName.includes("প্যাক") || cleanName.includes("ফ্রি") || cleanName.includes("+") || cleanName.includes("অফার");
               });
 
               if (comboProducts.length > 0) {
@@ -220,7 +200,6 @@ app.post('/webhook', async (req, res) => {
                              `আপনার পছন্দের নাম লিখে জানান অথবা সব পণ্যের দাম দেখতে 'মূল্য তালিকা' লিখে মেসেজ দিন।`;
 
             } else {
-              // নির্দিষ্ট পণ্যের নাম বা কি-ওয়ার্ড সার্চ
               const stopWords = ["ফুলের", "মধু", "এর", "দাম", "কত", "চাই", "নেব", "অর্ডার", "কেজি", "গ্রাম", "১কেজি", "১", "কেজী", "পণ্য"];
               const searchWords = cleanUserText.split(/\s+/).filter(w => w.length > 1 && !stopWords.includes(w));
 
