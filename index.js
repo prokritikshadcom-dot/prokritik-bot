@@ -9,7 +9,7 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'prokritik123';
 
 const DELIVERY_CHARGE = 120; // ডেলিভারি চার্জ ৳১২০
 
-// কাস্টমারের পছন্দকৃত পণ্য মনে রাখার মেমোরি সেশন
+// কাস্টমারের পছন্দকৃত পণ্য ও সাইজ মনে রাখার সেশন
 const userSessions = {};
 
 // ১. মেটা ওয়েবহুক ভেরিফিকেশন
@@ -83,39 +83,48 @@ app.post('/webhook', async (req, res) => {
         const phoneRegex = /(01[3-9]\d{8})/;
         const isOrderKeyword = lowerText.includes("অর্ডার") || lowerText.includes("কিনব") || lowerText.includes("নিতে চাই") || lowerText.includes("order");
 
-        // কাস্টমার যদি ফোন নম্বর ও ঠিকানা পাঠায়
+        // কাস্টমার যদি মোবাইল নম্বর ও ঠিকানা দিয়ে মেসেজ পাঠায়
         if (phoneRegex.test(messageText)) {
           const session = userSessions[senderPsid];
           
-          if (session && session.lastProduct) {
-            const product = session.lastProduct;
-            const productPrice = parseFloat(product.price.toString().replace(/[^0-9.]/g, '')) || 0;
-            const totalPrice = productPrice + DELIVERY_CHARGE;
+          if (session && session.matchedProducts && session.matchedProducts.length > 0) {
+            let productListText = "";
+            let basePrices = [];
 
-            replyMessage = `🎉 আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে!\n\n` +
-                           `📦 অর্ডারের বিবরণ:\n` +
-                           `• পণ্য: ${product.name}\n` +
-                           `• পণ্যের মূল্য: ৳${productPrice}\n` +
+            session.matchedProducts.forEach(p => {
+              const price = parseFloat(p.price.toString().replace(/[^0-9.]/g, '')) || 0;
+              productListText += `• ${p.name} - ৳${price}\n`;
+              basePrices.push(price);
+            });
+
+            const minPrice = Math.min(...basePrices);
+            const totalPrice = minPrice + DELIVERY_CHARGE;
+
+            replyMessage = `🎉 আপনার অর্ডারটি গ্রহণ করা হয়েছে!\n\n` +
+                           `📦 পছন্দকৃত পণ্যের তালিকা ও সাইজ:\n${productListText}` +
                            `• ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n` +
                            `──────────────────\n` +
-                           `💰 সর্বমোট বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice}\n\n` +
+                           `💰 আনুমানিক বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice} (সাইজ অনুযায়ী পরিবর্তনযোগ্য)\n\n` +
                            `📝 আপনার দেওয়া তথ্য:\n${messageText}\n\n` +
-                           `আমাদের প্রতিনিধি খুব দ্রুত কল করে আপনার অর্ডারটি নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
-                           `📞 প্রয়োজনে সরাসরি যোগাযোগ বা হোয়াটসঅ্যাপ করুন: 01335556732`;
+                           `আমাদের প্রতিনিধি খুব দ্রুত কল করে আপনার কাঙ্ক্ষিত সাইজ, পরিমাণ ও চূড়ান্ত বিল নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
+                           `📞 প্রয়োজনে সরাসরি যোগাযোগ/হোয়াটসঅ্যাপ: 01335556732`;
             
             delete userSessions[senderPsid];
           } else {
             replyMessage = `🎉 আপনার নাম, ঠিকানা ও মোবাইল নম্বর আমরা পেয়েছি!\n\n` +
-                           `অনুগ্রহ করে জানান আপনি কোন পণ্যটি (যেমন: সরিষা ফুলের মধু / কালোজিরা ফুলের মধু / গাওয়া ঘি) নিতে চাচ্ছেন?\n\n` +
+                           `আমাদের প্রতিনিধি খুব দ্রুত আপনার সাথে কল/মেসেজে যোগাযোগ করে পণ্যের নাম, সাইজ ও সর্বমোট বিল নিশ্চিত করবেন।\n\n` +
                            `📞 সরাসরি হেল্পলাইন/হোয়াটসঅ্যাপ: 01335556732`;
           }
 
         } else if (isOrderKeyword) {
           const session = userSessions[senderPsid];
-          let selectedText = session && session.lastProduct ? `\n(আপনার নির্বাচিত পণ্য: ${session.lastProduct.name})` : "";
+          let selectedText = "";
+          if (session && session.matchedProducts && session.matchedProducts.length > 0) {
+            selectedText = `\n(আপনার নির্বাচনকৃত পণ্য: ${session.matchedProducts[0].name})`;
+          }
 
           replyMessage = `মেসেঞ্জারে সরাসরি অর্ডার নিশ্চিত করতে নিচের তথ্যগুলো এক মেসেজে লিখে পাঠান ${selectedText}:\n\n` +
-                         `১. পণ্যের নাম ও পরিমাণ:\n` +
+                         `১. পণ্যের নাম ও সাইজ (যেমন: ১ কেজি / ৫০০ গ্রাম):\n` +
                          `২. আপনার নাম:\n` +
                          `৩. মোবাইল নম্বর:\n` +
                          `৪. পূর্ণাঙ্গ ঠিকানা:\n\n` +
@@ -123,47 +132,45 @@ app.post('/webhook', async (req, res) => {
                          `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
 
         } else {
-          // ওয়েবসাইট থেকে ডাটা পড়া
+          // ওয়েবসাইট থেকে লাইভ ডাটা পড়া
           const products = await fetchProductsFromWebsite();
 
           if (products && Array.isArray(products) && products.length > 0) {
-            
-            // কাস্টমার যদি শুধু সাধারণ "মধু" লেখে
-            if (lowerText === "মধু" || lowerText === "modhu" || lowerText === "honey") {
-              const honeyProducts = products.filter(p => p.name && p.name.toLowerCase().includes("মধু"));
 
-              if (honeyProducts.length > 0) {
-                replyMessage = `আমাদের কাছে নিচের মধুগুলো পাওয়া যাচ্ছে:\n\n`;
-                honeyProducts.forEach(p => {
-                  replyMessage += `• ${p.name} - ৳${p.price}\n`;
-                });
-                replyMessage += `\n❓ আপনি কোন মধুটি নিতে চাচ্ছেন? (যেমন: 'সরিষা ফুল' বা 'কালোজিরা ফুল' লিখে জানান)\n` +
-                                `🌐 অথবা ওয়েবসাইটে দেখুন: https://prokritikshad.com`;
-              } else {
-                replyMessage = `দুঃখিত, এই মুহূর্তে স্টকে মধু নেই। ওয়েবসাইট ভিজিট করুন: https://prokritikshad.com`;
-              }
+            // কাস্টমার যদি সাধারণ প্রশ্ন করে (যেমন: "আপনাদের মধুর দাম কি", "দাম কত", "মধু")
+            const isGeneralHoneyAsk = lowerText.includes("দাম") || lowerText === "মধু" || lowerText === "modhu" || lowerText === "honey";
+
+            if (isGeneralHoneyAsk && !lowerText.includes("সরিষা") && !lowerText.includes("কালোজিরা") && !lowerText.includes("সুন্দরবন") && !lowerText.includes("খলিশা") && !lowerText.includes("বড়ই") && !lowerText.includes("ঘি") && !lowerText.includes("গুড়")) {
+              
+              replyMessage = `স্যার, আপনি কোন মধুটি নিতে চাচ্ছেন? আমাদের কাছে পাওয়া যাচ্ছে:\n\n` +
+                             `• সরিষা ফুলের মধু\n` +
+                             `• কালোজিরা ফুলের মধু\n` +
+                             `• সুন্দরবনের মধু\n` +
+                             `• খলিশা ফুলের মধু\n` +
+                             `• বড়ই ফুলের মধু\n\n` +
+                             `আপনার পছন্দের মধুর নাম লিখে মেসেজ দিন (যেমন: 'সরিষা ফুল' বা 'কালোজিরা')। আমরা সব সাইজ ও দাম জানিয়ে দেবো।`;
 
             } else {
-              // কাস্টমার যদি নির্দিষ্ট মধুর নাম বলে (যেমন: "সরিষা", "সরিষা ফুল", "কালোজিরা", "সুন্দরবন" ইত্যাদি)
+              // কাস্টমার নির্দিষ্ট কোনো মধুর নাম বললে (যেমন: "সরিষা", "কালোজিরা", "সুন্দরবন", "ঘি", "গুড়" ইত্যাদি)
               const matchedProducts = products.filter(p => 
                 p.name && p.name.toLowerCase().includes(lowerText)
               );
 
               if (matchedProducts.length > 0) {
-                const chosenProduct = matchedProducts[0];
-                userSessions[senderPsid] = { lastProduct: chosenProduct };
+                // সেশনে ওই মধুর সবকটি সাইজ সেভ রাখা হলো
+                userSessions[senderPsid] = { matchedProducts: matchedProducts };
 
-                replyMessage = `আমাদের ${chosenProduct.name}-এর বিবরণ:\n\n` +
-                               `• পণ্য: ${chosenProduct.name}\n` +
-                               `• মূল্য: ৳${chosenProduct.price}\n` +
-                               `• ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
-                               `📦 এই পণ্যটি অর্ডার করতে আপনার নাম, মোবাইল নম্বর ও ঠিকানা লিখে মেসেজ দিন।\n` +
-                               `🌐 ওয়েবসাইটে অর্ডার করতে ভিজিট করুন: https://prokritikshad.com`;
+                replyMessage = `আমাদের উপলব্ধ সবকটি সাইজ ও মূল্য তালিকা:\n\n`;
+                matchedProducts.forEach(p => {
+                  replyMessage += `• ${p.name} - ৳${p.price}\n`;
+                });
+
+                replyMessage += `\n🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
+                                `📦 অর্ডার করতে আপনার নাম, মোবাইল নম্বর, পূর্ণাঙ্গ ঠিকানা এবং কাঙ্ক্ষিত সাইজটি লিখে মেসেজ দিন।\n` +
+                                `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
               } else {
-                replyMessage = `আসসালামু আলাইকুম! 'প্রাকৃতিক স্বাদ'-এ আপনাকে স্বাগতম।\n\n` +
-                               `• সব মধু দেখতে 'মধু' লিখে মেসেজ দিন।\n` +
-                               `• নির্দিষ্ট পণ্য যেমন 'সরিষা ফুল' বা 'ঘি' লিখে অনুসন্ধান করুন।\n` +
-                               `• অথবা ভিজিট করুন: https://prokritikshad.com`;
+                replyMessage = `স্যার, আপনি কোন পণ্যটি নিতে চাচ্ছেন? অনুগ্রহ করে নির্দিষ্ট পণ্যের নাম লিখে জানান (যেমন: 'সরিষা ফুল', 'কালোজিরা', 'গাওয়া ঘি')।\n\n` +
+                               `🌐 আমাদের পুরো ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
               }
             }
 
