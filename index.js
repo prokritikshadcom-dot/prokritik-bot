@@ -18,12 +18,16 @@ function convertBengaliToEnglishNumbers(str) {
   return str.replace(/[০-৯]/g, (w) => banglaNums.indexOf(w));
 }
 
-// বাংলা টেক্সট ও সাইজ নরমালাইজেশন
+// বাংলা টেক্সট, ইউনিকোড নুকতা ও 'ড়/র' ফিক্স ফাংশন
 function normalizeBengaliText(text) {
   if (!text) return "";
   return text
     .normalize('NFC')
     .replace(/ে\u09BE|\u09BEে|ো/g, 'ো')
+    .replace(/\u09A1\u09BC/g, 'ড়') // ড + ় -> ড়
+    .replace(/\u09A2\u09BC/g, 'ঢ়') // ঢ + ় -> ঢ়
+    .replace(/\u09AF\u09BC/g, 'য়') // য + ় -> য়
+    .replace(/বরই/g, 'বড়ই')         // 'বরই' কে 'বড়ই' এ রূপান্তর
     .replace(/সুন্দর\s*বনের|সুন্দর\s*বন/g, 'সুন্দরবন')
     .replace(/এক\s*কেজি|১\s*কেজি|1\s*kg|1kg/gi, '১কেজি')
     .replace(/হাফ\s*কেজি|হাফ\s*কেজী|৫০০\s*গ্রাম|500g|500\s*gram/gi, '৫০০গ্রাম')
@@ -107,7 +111,6 @@ app.post('/webhook', async (req, res) => {
 
           const matched = session.matchedProducts || [];
 
-          // কাস্টমারের টেক্সটে নির্দিষ্ট সাইজের উল্লেখ আছে কিনা
           let singleSelectedProduct = null;
           if (matched.length === 1) {
             singleSelectedProduct = matched[0];
@@ -219,7 +222,7 @@ app.post('/webhook', async (req, res) => {
                 replyMessage = `আমাদের সাধারণ পণ্যসমূহ দেখতে 'মূল্য তালিকা' লিখে মেসেজ দিন।\n\n🌐 পুরো ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
               }
 
-            } else if (isPriceAsk && !cleanUserText.includes("সরিষা") && !cleanUserText.includes("কালোজিরা") && !cleanUserText.includes("সুন্দরবন") && !cleanUserText.includes("খলিশা") && !cleanUserText.includes("বড়ই") && !cleanUserText.includes("ঘি") && !cleanUserText.includes("গুড়")) {
+            } else if (isPriceAsk && !cleanUserText.includes("সরিষা") && !cleanUserText.includes("কালোজিরা") && !cleanUserText.includes("সুন্দরবন") && !cleanUserText.includes("খলিশা") && !cleanUserText.includes("বড়ই") && !cleanUserText.includes("বরই") && !cleanUserText.includes("ঘি") && !cleanUserText.includes("গুড়")) {
               replyMessage = `স্যার, আপনি কোন মধুটি নিতে চাচ্ছেন? আমাদের কাছে পাওয়া যাচ্ছে:\n\n` +
                              `• সরিষা ফুলের মধু\n` +
                              `• কালোজিরা ফুলের মধু\n` +
@@ -230,8 +233,8 @@ app.post('/webhook', async (req, res) => {
                              `আপনার পছন্দের নাম লিখে জানান অথবা সব পণ্যের দাম দেখতে 'মূল্য তালিকা' লিখে মেসেজ দিন।`;
 
             } else {
-              // টাইপ এবং সাইজ আলাদা করা
-              const flowerKeywords = ["সুন্দরবন", "সরিষা", "কালোজিরা", "খলিশা", "বড়ই", "ঘি", "গুড়", "কম্বো"];
+              // টাইপ এবং সাইজ সার্চ
+              const flowerKeywords = ["সুন্দরবন", "সরিষা", "কালোজিরা", "খলিশা", "বড়ই", "বরই", "ঘি", "গুড়", "কম্বো"];
               const matchedFlowers = flowerKeywords.filter(f => cleanUserText.includes(f));
               
               const is1kg = cleanUserText.includes("১কেজি");
@@ -240,14 +243,12 @@ app.post('/webhook', async (req, res) => {
               let matchedProducts = [];
 
               if (matchedFlowers.length > 0) {
-                // ১. আগে নির্দিষ্ট ফুল/পণ্যের নাম অনুযায়ী ফিল্টার
                 let flowerFiltered = products.filter(p => {
                   if (!p.name) return false;
                   const cleanPName = normalizeBengaliText(p.name);
                   return matchedFlowers.some(f => cleanPName.includes(f));
                 });
 
-                // ২. যদি কাস্টমার সুনির্দিষ্ট সাইজ (১ কেজি বা ৫০০ গ্রাম) উল্লেখ করে
                 if (is1kg) {
                   const sizeFiltered = flowerFiltered.filter(p => normalizeBengaliText(p.name).includes("১কেজি"));
                   if (sizeFiltered.length > 0) flowerFiltered = sizeFiltered;
@@ -258,16 +259,23 @@ app.post('/webhook', async (req, res) => {
 
                 matchedProducts = flowerFiltered;
 
-              } else if (is1kg || is500g) {
-                // শুধু 'এক কেজি' বা 'হাফ কেজি' বললে
-                const targetSize = is1kg ? "১কেজি" : "৫০০গ্রাম";
-                matchedProducts = products.filter(p => p.name && normalizeBengaliText(p.name).includes(targetSize));
+              } else {
+                // কি-ওয়ার্ড ডায়নামিক ফিল্টার (ফ্ল্যাঙ্কব্যাক)
+                const stopWords = ["ফুলের", "মধু", "এর", "দাম", "কত", "চাই", "নেব", "অর্ডার", "কেজি", "গ্রাম", "১কেজি", "১", "কেজী", "পণ্য"];
+                const searchWords = cleanUserText.split(/\s+/).filter(w => w.length > 1 && !stopWords.includes(w));
+
+                matchedProducts = products.filter(p => {
+                  if (!p.name) return false;
+                  const cleanProductName = normalizeBengaliText(p.name);
+                  if (cleanProductName.includes(cleanUserText) || cleanUserText.includes(cleanProductName)) return true;
+                  if (searchWords.length > 0) return searchWords.some(word => cleanProductName.includes(word));
+                  return false;
+                });
               }
 
               if (matchedProducts.length > 0) {
                 const session = userSessions[senderPsid] || {};
 
-                // কাস্টমার যদি আগে ঠিকানা দিয়ে থাকে এবং এখন সাইজ/পণ্য নিশ্চিত করে
                 if (session.pendingInfo) {
                   const chosenProduct = matchedProducts[0];
                   const productPrice = parseFloat(chosenProduct.price.toString().replace(/[^0-9.]/g, '')) || 0;
