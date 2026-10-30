@@ -96,8 +96,14 @@ app.post('/webhook', async (req, res) => {
         // সাধারণ সালাম বা হাই
         const isGreeting = cleanUserText === "হাই" || cleanUserText === "হ্যালো" || cleanUserText === "hi" || cleanUserText === "hello" || cleanUserText.includes("আসসালামু") || cleanUserText === "hey";
 
+        // চার্ট বা সকল পণ্যের মূল্য তালিকা সংক্রান্ত প্রশ্ন
+        const isChartAsk = cleanUserText.includes("চার্ট") || cleanUserText.includes("মূল্য তালিকা") || cleanUserText.includes("মূল্যতালিকা") || cleanUserText.includes("প্রাইস লিস্ট") || cleanUserText.includes("প্রাইস তালিকা") || cleanUserText.includes("সকল পণ্য") || cleanUserText.includes("সব পণ্য") || cleanUserText.includes("লিস্ট") || cleanUserText.includes("chart") || cleanUserText.includes("price list");
+
         // সাধারণ দাম জানার প্রশ্ন
-        const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("কত") || cleanUserText === "মধু" || cleanUserText === "modhu" || cleanUserText === "honey";
+        const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("কত") || cleanUserText === "মధు" || cleanUserText === "modhu" || cleanUserText === "honey";
+
+        // কম্বো বা অফার সংক্রান্ত প্রশ্ন
+        const isComboAsk = cleanUserText.includes("কম্বো") || cleanUserText.includes("প্যাক") || cleanUserText.includes("অফার") || cleanUserText.includes("combo") || cleanUserText.includes("offer") || cleanUserText.includes("pack");
 
         // কাস্টমার যদি মোবাইল নম্বর ও ঠিকানা দিয়ে মেসেজ পাঠায় (অর্ডার কনফার্মেশন)
         if (phoneRegex.test(messageText)) {
@@ -120,7 +126,7 @@ app.post('/webhook', async (req, res) => {
                            `📦 পছন্দকৃত পণ্যের তালিকা ও সাইজ:\n${productListText}` +
                            `• ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n` +
                            `──────────────────\n` +
-                           `💰 আনুমানিক বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice} (সাইজ অনুযায়ী পরিবর্তনযোগ্য)\n\n` +
+                           `💰 আনুমানিক বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice} (সাইজ/প্যাক অনুযায়ী পরিবর্তনযোগ্য)\n\n` +
                            `📝 আপনার দেওয়া তথ্য:\n${messageText}\n\n` +
                            `আমাদের প্রতিনিধি খুব দ্রুত কল করে আপনার কাঙ্ক্ষিত সাইজ, পরিমাণ ও চূড়ান্ত বিল নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
                            `📞 প্রয়োজনে সরাসরি যোগাযোগ/হোয়াটসঅ্যাপ: 01335556732`;
@@ -134,11 +140,29 @@ app.post('/webhook', async (req, res) => {
 
         } else if (isGreeting) {
           replyMessage = `আসসালামু আলাইকুম! 'প্রাকৃতিক স্বাদ'-এ আপনাকে স্বাগতম। 🌿\n\n` +
-                         `আমাদের ১০০% খাঁটি প্রাকৃতিক পণ্যগুলোর দাম জানতে নির্দিষ্ট নাম লিখে মেসেজ দিন:\n` +
+                         `আমাদের ১০০% খাঁটি প্রাকৃতিক পণ্যগুলোর দাম জানতে মেসেজ দিন:\n` +
+                         `• 'মূল্য তালিকা' বা 'চার্ট' (সব পণ্যের তালিকা দেখতে)\n` +
                          `• 'সরিষা ফুল', 'কালোজিরা', 'বড়ই ফুল' বা 'সুন্দরবন'\n` +
-                         `• 'গাওয়া ঘি' বা '২০০ গ্রাম গুড়'\n\n` +
+                         `• 'কম্বো প্যাক' (বিশেষ অফারগুলো দেখতে)\n\n` +
                          `স্যার, আপনি কোন পণ্যটি নিতে চাচ্ছেন?\n` +
                          `🌐 ওয়েবসাইট: https://prokritikshad.com`;
+
+        } else if (isChartAsk) {
+          // ওয়েবসাইট থেকে সকল পণ্যের মূল্য তালিকা বানিয়ে দেওয়া
+          const products = await fetchProductsFromWebsite();
+
+          if (products && Array.isArray(products) && products.length > 0) {
+            replyMessage = `📋 'প্রাকৃতিক স্বাদ'-এর সকল পণ্যের মূল্য তালিকা:\n\n`;
+            products.forEach((p, index) => {
+              replyMessage += `${index + 1}. ${p.name} - ৳${p.price}\n`;
+            });
+
+            replyMessage += `\n🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
+                           `📦 যেকোনো পণ্য অর্ডার করতে আপনার নাম, মোবাইল নম্বর ও ঠিকানা লিখে পাঠাই দিন।\n` +
+                           `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
+          } else {
+            replyMessage = `আসসালামু আলাইকুম! আমাদের সকল পণ্যের তালিকা দেখতে ব্রাউজ করুন: https://prokritikshad.com`;
+          }
 
         } else if (isOrderKeyword) {
           const session = userSessions[senderPsid];
@@ -148,67 +172,91 @@ app.post('/webhook', async (req, res) => {
           }
 
           replyMessage = `মেসেঞ্জারে সরাসরি অর্ডার নিশ্চিত করতে নিচের তথ্যগুলো এক মেসেজে লিখে পাঠান ${selectedText}:\n\n` +
-                         `১. পণ্যের নাম ও সাইজ (যেমন: ১ কেজি / ৫০০ গ্রাম):\n` +
+                         `১. পণ্যের নাম ও সাইজ (যেমন: ১ কেজি / কম্বো প্যাক):\n` +
                          `২. আপনার নাম:\n` +
                          `৩. মোবাইল নম্বর:\n` +
                          `৪. পূর্ণাঙ্গ ঠিকানা:\n\n` +
                          `🚚 ক্যাশ অন ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n` +
                          `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
 
-        } else if (isPriceAsk && !cleanUserText.includes("সরিষা") && !cleanUserText.includes("কালোজিরা") && !cleanUserText.includes("সুন্দরবন") && !cleanUserText.includes("খলিশা") && !cleanUserText.includes("বড়ই") && !cleanUserText.includes("ঘি") && !cleanUserText.includes("গুড়")) {
-          
-          replyMessage = `স্যার, আপনি কোন মধুটি নিতে চাচ্ছেন? আমাদের কাছে পাওয়া যাচ্ছে:\n\n` +
-                         `• সরিষা ফুলের মধু\n` +
-                         `• কালোজিরা ফুলের মধু\n` +
-                         `• সুন্দরবনের মধু\n` +
-                         `• খলিশা ফুলের মধু\n` +
-                         `• বড়ই ফুলের মধু\n\n` +
-                         `আপনার পছন্দের মধুর নাম লিখে জানান (যেমন: 'সরিষা ফুল', 'বড়ই' বা 'কালোজিরা')। আমরা সব সাইজ ও দাম জানিয়ে দেবো।`;
-
         } else {
-          // ওয়েবসাইট থেকে ডাটা এনে স্মার্ট ম্যাচিং করা
+          // ওয়েবসাইট থেকে নির্দিষ্ট পণ্য ফিল্টার করা
           const products = await fetchProductsFromWebsite();
 
           if (products && Array.isArray(products) && products.length > 0) {
             
-            // সাধারণ শব্দের তালিকা বাদ দিয়ে প্রধান কি-ওয়ার্ড বের করা
-            const stopWords = ["ফুলের", "মধু", "এর", "দাম", "কত", "চাই", "নেব", "অর্ডার", "কেজি", "গ্রাম", "১কেজি", "১", "কেজী", "পণ্য"];
-            const searchWords = cleanUserText.split(/\s+/).filter(w => w.length > 1 && !stopWords.includes(w));
-
-            const matchedProducts = products.filter(p => {
-              if (!p.name) return false;
-              const cleanProductName = normalizeBengaliText(p.name);
-
-              // ১. সরাসরি মিল
-              if (cleanProductName.includes(cleanUserText) || cleanUserText.includes(cleanProductName)) {
-                return true;
-              }
-
-              // ২. কি-ওয়ার্ড অনুযায়ী মিল (যেমন: বড়ই, কালোজিরা, সরিষা)
-              if (searchWords.length > 0) {
-                return searchWords.some(word => cleanProductName.includes(word));
-              }
-
-              return false;
-            });
-
-            if (matchedProducts.length > 0) {
-              userSessions[senderPsid] = { matchedProducts: matchedProducts };
-
-              replyMessage = `আমাদের উপলব্ধ সবকটি সাইজ ও মূল্য তালিকা:\n\n`;
-              matchedProducts.forEach(p => {
-                replyMessage += `• ${p.name} - ৳${p.price}\n`;
+            // কম্বো বা অফার সেকশন
+            if (isComboAsk) {
+              const comboProducts = products.filter(p => {
+                if (!p.name) return false;
+                const cleanName = normalizeBengaliText(p.name);
+                return cleanName.includes("কম্বো") || cleanName.includes("প্যাক") || cleanName.includes("ফ্রি") || cleanName.includes("+") || cleanName.includes("অফার") || cleanName.includes("combo") || cleanName.includes("pack");
               });
 
-              replyMessage += `\n🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
-                              `📦 অর্ডার করতে আপনার নাম, মোবাইল নম্বর, পূর্ণাঙ্গ ঠিকানা এবং কাঙ্ক্ষিত সাইজটি লিখে মেসেজ দিন।\n` +
-                              `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
+              if (comboProducts.length > 0) {
+                userSessions[senderPsid] = { matchedProducts: comboProducts };
+
+                replyMessage = `আমাদের স্পেশাল কম্বো প্যাক ও অফারসমূহ:\n\n`;
+                comboProducts.forEach(p => {
+                  replyMessage += `• ${p.name} - ৳${p.price}\n\n`;
+                });
+
+                replyMessage += `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
+                                `📦 যেকোনো কম্বো প্যাক অর্ডার করতে আপনার নাম, মোবাইল নম্বর ও ঠিকানা লিখে মেসেজ দিন।\n` +
+                                `🌐 ওয়েবসাইট থেকে অর্ডার করতে: https://prokritikshad.com`;
+              } else {
+                replyMessage = `আমাদের সাধারণ পণ্যসমূহ দেখতে 'মধু', 'গাওয়া ঘি' বা 'মূল্য তালিকা' লিখে মেসেজ দিন।\n\n🌐 পুরো ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
+              }
+
+            } else if (isPriceAsk && !cleanUserText.includes("সরিষা") && !cleanUserText.includes("কালোজিরা") && !cleanUserText.includes("সুন্দরবন") && !cleanUserText.includes("খলিশা") && !cleanUserText.includes("বড়ই") && !cleanUserText.includes("ঘি") && !cleanUserText.includes("গুড়")) {
+              
+              replyMessage = `স্যার, আপনি কোন মধুটি নিতে চাচ্ছেন? আমাদের কাছে পাওয়া যাচ্ছে:\n\n` +
+                             `• সরিষা ফুলের মধু\n` +
+                             `• কালোজিরা ফুলের মধু\n` +
+                             `• সুন্দরবনের মধু\n` +
+                             `• খলিশা ফুলের মধু\n` +
+                             `• বড়ই ফুলের মধু\n` +
+                             `• স্পেশাল কম্বো প্যাক (অফার)\n\n` +
+                             `আপনার পছন্দের নাম লিখে জানান অথবা সব পণ্যের দাম দেখতে 'মূল্য তালিকা' লিখে মেসেজ দিন।`;
+
             } else {
-              replyMessage = `স্যার, আপনি কোন পণ্যটি নিতে চাচ্ছেন? অনুগ্রহ করে নির্দিষ্ট পণ্যের নাম লিখে জানান (যেমন: 'সরিষা ফুল', 'কালোজিরা', 'বড়ই', 'গাওয়া ঘি')।\n\n` +
-                             `🌐 আমাদের পুরো ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
+              // নির্দিষ্ট পণ্যের নাম বা কি-ওয়ার্ড সার্চ
+              const stopWords = ["ফুলের", "মধু", "এর", "দাম", "কত", "চাই", "নেব", "অর্ডার", "কেজি", "গ্রাম", "১কেজি", "১", "কেজী", "পণ্য"];
+              const searchWords = cleanUserText.split(/\s+/).filter(w => w.length > 1 && !stopWords.includes(w));
+
+              const matchedProducts = products.filter(p => {
+                if (!p.name) return false;
+                const cleanProductName = normalizeBengaliText(p.name);
+
+                if (cleanProductName.includes(cleanUserText) || cleanUserText.includes(cleanProductName)) {
+                  return true;
+                }
+
+                if (searchWords.length > 0) {
+                  return searchWords.some(word => cleanProductName.includes(word));
+                }
+
+                return false;
+              });
+
+              if (matchedProducts.length > 0) {
+                userSessions[senderPsid] = { matchedProducts: matchedProducts };
+
+                replyMessage = `আমাদের উপলব্ধ সবকটি সাইজ ও মূল্য তালিকা:\n\n`;
+                matchedProducts.forEach(p => {
+                  replyMessage += `• ${p.name} - ৳${p.price}\n\n`;
+                });
+
+                replyMessage += `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
+                                `📦 অর্ডার করতে আপনার নাম, মোবাইল নম্বর, পূর্ণাঙ্গ ঠিকানা এবং কাঙ্ক্ষিত পণ্যটি লিখে মেসেজ দিন।\n` +
+                                `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
+              } else {
+                replyMessage = `স্যার, আপনি কোন পণ্যটি নিতে চাচ্ছেন? 'মূল্য তালিকা' লিখে আমাদের সব পণ্যের দাম একসাথে দেখতে পারেন।\n\n` +
+                               `🌐 আমাদের পুরো ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
+              }
             }
           } else {
-            replyMessage = `স্যার, আপনি কোন পণ্যটি নিতে চাচ্ছেন? অনুগ্রহ করে নির্দিষ্ট পণ্যের নাম লিখে জানান (যেমন: 'সরিষা ফুল', 'কালোজিরা', 'গাওয়া ঘি')।\n\n` +
+            replyMessage = `স্যার, আপনি কোন পণ্যটি নিতে চাচ্ছেন? 'মূল্য তালিকা' লিখে আমাদের সব পণ্যের দাম একসাথে দেখতে পারেন।\n\n` +
                            `🌐 আমাদের পুরো ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
           }
         }
