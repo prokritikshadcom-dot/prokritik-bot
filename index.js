@@ -1,112 +1,62 @@
 const express = require('express');
+const bodyParser = require('body-parser');
 const app = express();
 
-app.use(express.json());
+app.use(bodyParser.json());
 
-const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-
-// Webhook Verification (GET)
-app.get('/webhook', (req, res) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-
-  if (mode && token) {
-    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-      console.log('WEBHOOK_VERIFIED');
-      res.status(200).send(challenge);
-    } else {
-      res.sendStatus(403);
-    }
+// ওয়েবসাইট থেকে প্রোডাক্টের লাইভ তথ্য আনার ফাংশন
+async function fetchProductsFromWebsite() {
+  try {
+    const response = await fetch('https://prokritikshad.com/products_api.php');
+    const products = await response.json();
+    return products;
+  } catch (error) {
+    console.error('Website API Error:', error);
+    return null;
   }
-});
+}
 
-// Message Receiver (POST)
-app.post('/webhook', (req, res) => {
+// মেসেঞ্জারের মূল মেসেজ প্রসেসিং
+app.post('/webhook', async (req, res) => {
   const body = req.body;
 
   if (body.object === 'page') {
-    body.entry.forEach(entry => {
-      if (entry.messaging) {
-        entry.messaging.forEach(webhook_event => {
-          const sender_psid = webhook_event.sender.id;
-          if (webhook_event.message && webhook_event.message.text) {
-            handleMessage(sender_psid, webhook_event.message.text);
+    for (const entry of body.entry) {
+      const webhookEvent = entry.messaging[0];
+      const senderPsid = webhookEvent.sender.id;
+
+      if (webhookEvent.message && webhookEvent.message.text) {
+        const messageText = webhookEvent.message.text.toLowerCase();
+        let replyMessage = "";
+
+        // ওয়েবসাইট থেকে লাইভ তথ্য রিড করা
+        const products = await fetchProductsFromWebsite();
+
+        if (products && products.length > 0) {
+          // কাস্টমার যে শব্দ লিখবে তা দিয়ে প্রোডাক্ট ফিল্টার
+          const matchedProducts = products.filter(p => 
+            p.name.toLowerCase().includes(messageText)
+          );
+
+          if (matchedProducts.length > 0) {
+            replyMessage = "আমাদের পাওয়া যাচ্ছে:\n\n";
+            matchedProducts.forEach(p => {
+              replyMessage += `• ${p.name} - ৳${p.price}\n`;
+            });
+            replyMessage += "\nঅর্ডার করতে সরাসরি ভিজিট করুন: https://prokritikshad.com";
+          } else {
+            replyMessage = "আসসালামু আলাইকুম! প্রাকৃতিক স্বাদ পেজে আপনাকে স্বাগতম। পণ্য ও দাম জানতে 'মধু', 'ঘি' বা 'গুড়' লিখে মেসেজ দিন। অথবা বিস্তারিত দেখুন: https://prokritikshad.com";
           }
-        });
+        } else {
+          replyMessage = "ধন্যবাদ মেসেজ দেওয়ার জন্য! আমাদের সব পণ্যের দাম ও তথ্য জানতে ব্রাউজ করুন: https://prokritikshad.com";
+        }
+
+        // মেসেঞ্জারে উত্তর পাঠানো
+        await sendTextMessage(senderPsid, replyMessage);
       }
-    });
+    }
     res.status(200).send('EVENT_RECEIVED');
   } else {
     res.sendStatus(404);
   }
 });
-
-// Keyword Logic Setup
-function handleMessage(sender_psid, received_message) {
-  let response;
-  const text = received_message.toLowerCase().trim();
-
-  if (text.includes('সুন্দরবন')) {
-    response = {
-      "text": "আমাদের প্রাকৃতিক স্বাদের 'সুন্দরবনের খাঁটি মধু' ১০০% প্রাকৃতিক ও চাক কাটা।\n\nদাম: ১ কেজি ৮৫০ টাকা।\nঅর্ডার করতে আপনার নাম, ঠিকানা ও মোবাইল নম্বর লিখে জানান!"
-    };
-  } else if (text.includes('সরিষা')) {
-    response = {
-      "text": "আমাদের 'সরিষা ফুলের মধু' ১০০% খাঁটি ও সুস্বাদু।\n\nদাম: ১ কেজি ৬৫০ টাকা।\nঅর্ডার করতে আপনার নাম, ঠিকানা ও মোবাইল নম্বর লিখে জানান!"
-    };
-  } else if (text.includes('মধু') || text.includes('honey')) {
-    response = {
-      "text": "আমাদের কাছে পাচ্ছেন শতভাগ খাঁটি মধু:\n১. সুন্দরবনের মধু - ৮৫০ টাকা (১ কেজি)\n২. সরিষা ফুলের মধু - ৬৫ো টাকা (১ কেজি)\n\nআপনি কোনটা নিতে চান?"
-    };
-  } else if (text.includes('ঘি') || text.includes('ghee')) {
-    response = {
-      "text": "আমাদের 'প্রাকৃতিক স্বাদ' গাওয়া ঘি নাটোরের খাঁটি দুধের মাখন দিয়ে তৈরি। এটি সম্পূর্ণ সুবাসিত ও ভেজালমুক্ত।\n\nদাম: ১ কেজি ১৪০০ টাকা, ৫০০ গ্রাম ৭৫০ টাকা।"
-    };
-  } else if (text.includes('গুড়') || text.includes('gur') || text.includes('খেজুরে')) {
-    response = {
-      "text": "আমাদের কাছে পাবেন নাটোরের খাঁটি খেজুরের পাটালি ও ঝোলা গুড়। কোনো চিনি বা কেমিক্যাল মুক্ত।"
-    };
-  } else if (text.includes('আম') || text.includes('mango')) {
-    response = {
-      "text": "আমাদের নাটোরের নিজস্ব বাগান থেকে সরাসরি কেমিক্যালমুক্ত তাজা আম সরবরাহ করা হয়।"
-    };
-  } else if (text.includes('হাই') || text.includes('hello') || text.includes('hi') || text.includes('আসসালামু')) {
-    response = {
-      "text": "আসসালামু আলাইকুম! 'প্রাকৃতিক স্বাদ' পেজে আপনাকে স্বাগতম।\n\nআমাদের কাছে পাবেন খাঁটি মধু, গাওয়া ঘি, খেজুরের গুড় ও তাজা আম। আপনি কোনটি সম্পর্কে জানতে চান?"
-    };
-  } else if (text.includes('অর্ডার') || text.includes('order') || text.includes('দাম') || text.includes('কিনব')) {
-    response = {
-      "text": "অর্ডার করতে অনুগ্রহ করে আপনার নাম, পূর্ণাঙ্গ ঠিকানা এবং মোবাইল নম্বর লিখে মেসেজ দিন।"
-    };
-  } else {
-    response = {
-      "text": "ধন্যবাদ আপনার মেসেজের জন্য! আমাদের প্রতিনিধি খুব দ্রুত আপনার সাথে যোগাযোগ করবেন।"
-    };
-  }
-
-  callSendAPI(sender_psid, response);
-}
-
-// Send Response via Facebook Graph API
-async function callSendAPI(sender_psid, response) {
-  const request_body = {
-    "recipient": { "id": sender_psid },
-    "message": response
-  };
-
-  try {
-    await fetch(`https://graph.facebook.com/v18.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request_body)
-    });
-    console.log('Message sent!');
-  } catch (err) {
-    console.error('Unable to send message:', err);
-  }
-}
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
