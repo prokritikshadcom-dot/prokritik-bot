@@ -11,12 +11,22 @@ const DELIVERY_CHARGE = 120; // ডেলিভারি চার্জ ৳১�
 
 const userSessions = {};
 
+// বাংলা সংখ্যাকে ইংরেজি সংখ্যায় রূপান্তর ফাংশন
+function convertBengaliToEnglishNumbers(str) {
+  if (!str) return "";
+  const banglaNums = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+  return str.replace(/[০-৯]/g, (w) => banglaNums.indexOf(w));
+}
+
+// বাংলা টেক্সট ও ইউনিকোড নরমালাইজেশন ফাংশন
 function normalizeBengaliText(text) {
   if (!text) return "";
   return text
     .normalize('NFC')
     .replace(/ে\u09BE|\u09BEে|ো/g, 'ো')
     .replace(/সুন্দর\s*বনের|সুন্দর\s*বন/g, 'সুন্দরবন')
+    .replace(/এক\s*কেজি|১\s*কেজি/g, '১কেজি')
+    .replace(/হাফ\s*কেজি|৫০০\s*গ্রাম/g, '৫০০গ্রাম')
     .toLowerCase()
     .trim();
 }
@@ -78,20 +88,24 @@ app.post('/webhook', async (req, res) => {
         const cleanUserText = normalizeBengaliText(messageText);
         let replyMessage = "";
 
+        // বাংলা সংখ্যা রূপান্তর ও ফোন নম্বর বের করা
+        const normalizedPhoneText = convertBengaliToEnglishNumbers(messageText).replace(/[\s-]/g, '');
         const phoneRegex = /(01[3-9]\d{8})/;
+        const isPhoneProvided = phoneRegex.test(normalizedPhoneText);
+
         const isOrderKeyword = cleanUserText.includes("অর্ডার") || cleanUserText.includes("কিনব") || cleanUserText.includes("নিতে চাই") || cleanUserText.includes("order");
         const isGreeting = cleanUserText === "হাই" || cleanUserText === "হ্যালো" || cleanUserText === "hi" || cleanUserText === "hello" || cleanUserText.includes("আসসালামু") || cleanUserText === "hey";
         const isChartAsk = cleanUserText.includes("চার্ট") || cleanUserText.includes("মূল্য তালিকা") || cleanUserText.includes("মূল্যতালিকা") || cleanUserText.includes("প্রাইস লিস্ট") || cleanUserText.includes("সকল পণ্য") || cleanUserText.includes("সব পণ্য") || cleanUserText.includes("লিস্ট") || cleanUserText.includes("chart");
-        
-        // দাম কমানো বা ডিসকাউন্ট সংক্রান্ত প্রশ্ন
         const isDiscountAsk = cleanUserText.includes("কমানো") || cleanUserText.includes("কম রাখা") || cleanUserText.includes("কম হবে") || cleanUserText.includes("ডিসকাউন্ট") || cleanUserText.includes("ছাড়") || cleanUserText.includes("discount") || cleanUserText.includes("কম নিয়েন") || cleanUserText.includes("কম রাখা যাবে");
-
         const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("কত") || cleanUserText === "মధు" || cleanUserText === "modhu" || cleanUserText === "honey";
         const isComboAsk = cleanUserText === "কম্বো" || cleanUserText === "কম্বো প্যাক" || cleanUserText === "অফার";
 
-        if (phoneRegex.test(messageText)) {
-          const session = userSessions[senderPsid];
-          if (session && session.matchedProducts && session.matchedProducts.length > 0) {
+        // ১. কাস্টমার যদি ফোন নম্বর ও ঠিকানা পাঠায়
+        if (isPhoneProvided) {
+          const session = userSessions[senderPsid] || {};
+          session.pendingInfo = messageText; // ঠিকানা ও ফোন নম্বর সেভ রাখা
+
+          if (session.matchedProducts && session.matchedProducts.length > 0) {
             let productListText = "";
             let basePrices = [];
 
@@ -104,20 +118,20 @@ app.post('/webhook', async (req, res) => {
             const minPrice = Math.min(...basePrices);
             const totalPrice = minPrice + DELIVERY_CHARGE;
 
-            replyMessage = `🎉 আপনার অর্ডারটি গ্রহণ করা হয়েছে!\n\n` +
-                           `📦 পছন্দকৃত পণ্যের তালিকা ও সাইজ:\n${productListText}` +
+            replyMessage = `🎉 আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে!\n\n` +
+                           `📦 অর্ডারের বিবরণ:\n${productListText}` +
                            `• ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n` +
                            `──────────────────\n` +
-                           `💰 আনুমানিক বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice} (সাইজ/প্যাক অনুযায়ী পরিবর্তনযোগ্য)\n\n` +
-                           `📝 আপনার দেওয়া তথ্য:\n${messageText}\n\n` +
-                           `আমাদের প্রতিনিধি খুব দ্রুত কল করে আপনার কাঙ্ক্ষিত সাইজ, পরিমাণ ও চূড়ান্ত বিল নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
-                           `📞 প্রয়োজনে সরাসরি যোগাযোগ/হোয়াটসঅ্যাপ: 01335556732`;
+                           `💰 সর্বমোট বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice}\n\n` +
+                           `📝 আপনার দেওয়া ঠিকানা ও মোবাইল নম্বর:\n${messageText}\n\n` +
+                           `আমাদের প্রতিনিধি কল করে আপনার অর্ডারটি নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
+                           `📞 হোয়াটসঅ্যাপ/হেল্পলাইন: 01335556732`;
             
             delete userSessions[senderPsid];
           } else {
+            userSessions[senderPsid] = session;
             replyMessage = `🎉 আপনার নাম, ঠিকানা ও মোবাইল নম্বর আমরা পেয়েছি!\n\n` +
-                           `আমাদের প্রতিনিধি খুব দ্রুত আপনার সাথে কল/মেসেজে যোগাযোগ করে পণ্যের নাম, সাইজ ও সর্বমোট বিল নিশ্চিত করবেন।\n\n` +
-                           `📞 সরাসরি হেল্পলাইন/হোয়াটসঅ্যাপ: 01335556732`;
+                           `স্যার, আপনি কোন পণ্যটি এবং কতটুকু (যেমন: 'সুন্দরবনের মধু ১ কেজি' বা 'গাওয়া ঘি') নিতে চাচ্ছেন? অনুগ্রহ করে পণ্যের নামটি জানান।`;
           }
 
         } else if (isGreeting) {
@@ -130,7 +144,6 @@ app.post('/webhook', async (req, res) => {
                          `🌐 ওয়েবসাইট: https://prokritikshad.com`;
 
         } else if (isDiscountAsk) {
-          // দাম কমানো বা ডিসকাউন্টের উত্তর
           replyMessage = `স্যার, আমরা ১০০% খাঁটি ও প্রিমিয়াম কোয়ালিটির প্রাকৃতিক পণ্য সরাসরি উৎস থেকে সংগ্রহ করে একদম ন্যায্যমূল্যে সরবরাহ করি। তাই আমাদের পণ্যের দাম নির্ধারিত। 🌿\n\n` +
                          `তবে আপনি যদি অফারে সাশ্রয়ী মূল্যে নিতে চান, আমাদের বিশেষ কম্বো প্যাকগুলো দেখতে পারেন!\n\n` +
                          `🎁 কম্বো অফার দেখতে 'কম্বো' লিখে মেসেজ দিন।\n` +
@@ -172,6 +185,7 @@ app.post('/webhook', async (req, res) => {
                          `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
 
         } else {
+          // পণ্য খোঁজা এবং অর্ডার ম্যাচিং
           const products = await fetchProductsFromWebsite();
 
           if (products && Array.isArray(products) && products.length > 0) {
@@ -185,21 +199,14 @@ app.post('/webhook', async (req, res) => {
 
               if (comboProducts.length > 0) {
                 userSessions[senderPsid] = { matchedProducts: comboProducts };
-
                 replyMessage = `আমাদের স্পেশাল কম্বো প্যাক ও অফারসমূহ:\n\n`;
-                comboProducts.forEach(p => {
-                  replyMessage += `• ${p.name} - ৳${p.price}\n\n`;
-                });
-
-                replyMessage += `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
-                                `📦 যেকোনো কম্বো প্যাক অর্ডার করতে আপনার নাম, মোবাইল নম্বর ও ঠিকানা লিখে মেসেজ দিন।\n` +
-                                `🌐 ওয়েবসাইট থেকে অর্ডার করতে: https://prokritikshad.com`;
+                comboProducts.forEach(p => { replyMessage += `• ${p.name} - ৳${p.price}\n\n`; });
+                replyMessage += `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n📦 অর্ডার করতে আপনার নাম, ঠিকানা ও মোবাইল নম্বর লিখে দিন।`;
               } else {
-                replyMessage = `আমাদের সাধারণ পণ্যসমূহ দেখতে 'মধু', 'গাওয়া ঘি' বা 'মূল্য তালিকা' লিখে মেসেজ দিন।\n\n🌐 পুরো ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
+                replyMessage = `আমাদের সাধারণ পণ্যসমূহ দেখতে 'মূল্য তালিকা' লিখে মেসেজ দিন।\n\n🌐 পুরো ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
               }
 
             } else if (isPriceAsk && !cleanUserText.includes("সরিষা") && !cleanUserText.includes("কালোজিরা") && !cleanUserText.includes("সুন্দরবন") && !cleanUserText.includes("খলিশা") && !cleanUserText.includes("বড়ই") && !cleanUserText.includes("ঘি") && !cleanUserText.includes("গুড়")) {
-              
               replyMessage = `স্যার, আপনি কোন মধুটি নিতে চাচ্ছেন? আমাদের কাছে পাওয়া যাচ্ছে:\n\n` +
                              `• সরিষা ফুলের মধু\n` +
                              `• কালোজিরা ফুলের মধু\n` +
@@ -216,29 +223,41 @@ app.post('/webhook', async (req, res) => {
               const matchedProducts = products.filter(p => {
                 if (!p.name) return false;
                 const cleanProductName = normalizeBengaliText(p.name);
-
-                if (cleanProductName.includes(cleanUserText) || cleanUserText.includes(cleanProductName)) {
-                  return true;
-                }
-
-                if (searchWords.length > 0) {
-                  return searchWords.some(word => cleanProductName.includes(word));
-                }
-
+                if (cleanProductName.includes(cleanUserText) || cleanUserText.includes(cleanProductName)) return true;
+                if (searchWords.length > 0) return searchWords.some(word => cleanProductName.includes(word));
                 return false;
               });
 
               if (matchedProducts.length > 0) {
-                userSessions[senderPsid] = { matchedProducts: matchedProducts };
+                const session = userSessions[senderPsid] || {};
 
-                replyMessage = `আমাদের উপলব্ধ সবকটি সাইজ ও মূল্য তালিকা:\n\n`;
-                matchedProducts.forEach(p => {
-                  replyMessage += `• ${p.name} - ৳${p.price}\n\n`;
-                });
+                // যদি কাস্টমার আগে থেকেই নাম-ঠিকানা দিয়ে রেখে থাকে
+                if (session.pendingInfo) {
+                  const chosenProduct = matchedProducts[0];
+                  const productPrice = parseFloat(chosenProduct.price.toString().replace(/[^0-9.]/g, '')) || 0;
+                  const totalPrice = productPrice + DELIVERY_CHARGE;
 
-                replyMessage += `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
-                                `📦 অর্ডার করতে আপনার নাম, মোবাইল নম্বর, পূর্ণাঙ্গ ঠিকানা এবং কাঙ্ক্ষিত পণ্যটি লিখে মেসেজ দিন।\n` +
-                                `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
+                  replyMessage = `🎉 আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে!\n\n` +
+                                 `📦 অর্ডারের বিবরণ:\n` +
+                                 `• পণ্য: ${chosenProduct.name}\n` +
+                                 `• পণ্যের মূল্য: ৳${productPrice}\n` +
+                                 `• ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n` +
+                                 `──────────────────\n` +
+                                 `💰 সর্বমোট বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice}\n\n` +
+                                 `📝 আপনার দেওয়া তথ্য:\n${session.pendingInfo}\n\n` +
+                                 `আমাদের প্রতিনিধি কল করে আপনার অর্ডারটি নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
+                                 `📞 হেল্পলাইন/হোয়াটসঅ্যাপ: 01335556732`;
+                  
+                  delete userSessions[senderPsid];
+                } else {
+                  userSessions[senderPsid] = { matchedProducts: matchedProducts };
+                  replyMessage = `আমাদের উপলব্ধ সবকটি সাইজ ও মূল্য তালিকা:\n\n`;
+                  matchedProducts.forEach(p => { replyMessage += `• ${p.name} - ৳${p.price}\n\n`; });
+                  replyMessage += `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
+                                  `📦 অর্ডার করতে আপনার নাম, মোবাইল নম্বর, পূর্ণাঙ্গ ঠিকানা এবং কাঙ্ক্ষিত পণ্যটি লিখে মেসেজ দিন।\n` +
+                                  `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
+                }
+
               } else {
                 replyMessage = `স্যার, আপনি কোন পণ্যটি নিতে চাচ্ছেন? 'মূল্য তালিকা' লিখে আমাদের সব পণ্যের দাম একসাথে দেখতে পারেন।\n\n` +
                                `🌐 আমাদের পুরো ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
