@@ -11,22 +11,22 @@ const DELIVERY_CHARGE = 120; // ডেলিভারি চার্জ ৳১�
 
 const userSessions = {};
 
-// বাংলা সংখ্যাকে ইংরেজি সংখ্যায় রূপান্তর ফাংশন
+// বাংলা সংখ্যাকে ইংরেজি সংখ্যায় রূপান্তর
 function convertBengaliToEnglishNumbers(str) {
   if (!str) return "";
   const banglaNums = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
   return str.replace(/[০-৯]/g, (w) => banglaNums.indexOf(w));
 }
 
-// বাংলা টেক্সট ও ইউনিকোড নরমালাইজেশন ফাংশন
+// বাংলা টেক্সট ও সাইজ নরমালাইজেশন
 function normalizeBengaliText(text) {
   if (!text) return "";
   return text
     .normalize('NFC')
     .replace(/ে\u09BE|\u09BEে|ো/g, 'ো')
     .replace(/সুন্দর\s*বনের|সুন্দর\s*বন/g, 'সুন্দরবন')
-    .replace(/এক\s*কেজি|১\s*কেজি/g, '১কেজি')
-    .replace(/হাফ\s*কেজি|৫০০\s*গ্রাম/g, '৫০০গ্রাম')
+    .replace(/এক\s*কেজি|১\s*কেজি|1\s*kg|1kg/gi, '১কেজি')
+    .replace(/হাফ\s*কেজি|হাফ\s*কেজী|৫০০\s*গ্রাম|500g|500\s*gram/gi, '৫০০গ্রাম')
     .toLowerCase()
     .trim();
 }
@@ -88,7 +88,7 @@ app.post('/webhook', async (req, res) => {
         const cleanUserText = normalizeBengaliText(messageText);
         let replyMessage = "";
 
-        // বাংলা সংখ্যা রূপান্তর ও ফোন নম্বর বের করা
+        // ফোন নম্বর ডিটেকশন
         const normalizedPhoneText = convertBengaliToEnglishNumbers(messageText).replace(/[\s-]/g, '');
         const phoneRegex = /(01[3-9]\d{8})/;
         const isPhoneProvided = phoneRegex.test(normalizedPhoneText);
@@ -100,38 +100,51 @@ app.post('/webhook', async (req, res) => {
         const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("কত") || cleanUserText === "মధు" || cleanUserText === "modhu" || cleanUserText === "honey";
         const isComboAsk = cleanUserText === "কম্বো" || cleanUserText === "কম্বো প্যাক" || cleanUserText === "অফার";
 
-        // ১. কাস্টমার যদি ফোন নম্বর ও ঠিকানা পাঠায়
+        // ১. কাস্টমার ফোন নম্বর ও ঠিকানা পাঠালে
         if (isPhoneProvided) {
           const session = userSessions[senderPsid] || {};
-          session.pendingInfo = messageText; // ঠিকানা ও ফোন নম্বর সেভ রাখা
+          session.pendingInfo = messageText;
 
-          if (session.matchedProducts && session.matchedProducts.length > 0) {
-            let productListText = "";
-            let basePrices = [];
+          const matched = session.matchedProducts || [];
 
-            session.matchedProducts.forEach(p => {
-              const price = parseFloat(p.price.toString().replace(/[^0-9.]/g, '')) || 0;
-              productListText += `• ${p.name} - ৳${price}\n`;
-              basePrices.push(price);
-            });
+          // কাস্টমারের টেক্সটে নির্দিষ্ট সাইজের উল্লেখ আছে কিনা
+          let singleSelectedProduct = null;
+          if (matched.length === 1) {
+            singleSelectedProduct = matched[0];
+          } else if (matched.length > 1) {
+            if (cleanUserText.includes("১কেজি")) {
+              singleSelectedProduct = matched.find(p => normalizeBengaliText(p.name).includes("১কেজি"));
+            } else if (cleanUserText.includes("৫০০গ্রাম")) {
+              singleSelectedProduct = matched.find(p => normalizeBengaliText(p.name).includes("৫০০গ্রাম"));
+            }
+          }
 
-            const minPrice = Math.min(...basePrices);
-            const totalPrice = minPrice + DELIVERY_CHARGE;
+          if (singleSelectedProduct) {
+            const productPrice = parseFloat(singleSelectedProduct.price.toString().replace(/[^0-9.]/g, '')) || 0;
+            const totalPrice = productPrice + DELIVERY_CHARGE;
 
             replyMessage = `🎉 আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে!\n\n` +
-                           `📦 অর্ডারের বিবরণ:\n${productListText}` +
+                           `📦 অর্ডারের বিবরণ:\n` +
+                           `• পণ্য: ${singleSelectedProduct.name}\n` +
+                           `• মূল্য: ৳${productPrice}\n` +
                            `• ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n` +
                            `──────────────────\n` +
                            `💰 সর্বমোট বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice}\n\n` +
-                           `📝 আপনার দেওয়া ঠিকানা ও মোবাইল নম্বর:\n${messageText}\n\n` +
+                           `📝 আপনার দেওয়া তথ্য:\n${messageText}\n\n` +
                            `আমাদের প্রতিনিধি কল করে আপনার অর্ডারটি নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
-                           `📞 হোয়াটসঅ্যাপ/হেল্পলাইন: 01335556732`;
-            
+                           `📞 হেল্পলাইন/হোয়াটসঅ্যাপ: 01335556732`;
+
             delete userSessions[senderPsid];
+          } else if (matched.length > 1) {
+            userSessions[senderPsid] = session;
+            let optionsText = matched.map(p => `• ${p.name} - ৳${p.price}`).join('\n');
+            replyMessage = `🎉 আপনার নাম, ঠিকানা ও মোবাইল নম্বর আমরা পেয়েছি!\n\n` +
+                           `অনুগ্রহ করে জানান আপনি কোন সাইজটি নিতে চাচ্ছেন?\n${optionsText}\n\n` +
+                           `সাইজটি (যেমন: '১ কেজি' বা '৫০০ গ্রাম') জানালেই আমরা অর্ডার নিশ্চিত করে দেবো।`;
           } else {
             userSessions[senderPsid] = session;
             replyMessage = `🎉 আপনার নাম, ঠিকানা ও মোবাইল নম্বর আমরা পেয়েছি!\n\n` +
-                           `স্যার, আপনি কোন পণ্যটি এবং কতটুকু (যেমন: 'সুন্দরবনের মধু ১ কেজি' বা 'গাওয়া ঘি') নিতে চাচ্ছেন? অনুগ্রহ করে পণ্যের নামটি জানান।`;
+                           `স্যার, আপনি কোন পণ্যটি এবং কতটুকু (যেমন: 'সুন্দরবনের মধু ১ কেজি' বা 'গাওয়া ঘি') নিতে চাচ্ছেন? অনুগ্রহ করে নির্দিষ্ট নাম ও সাইজটি জানান।`;
           }
 
         } else if (isGreeting) {
@@ -177,7 +190,7 @@ app.post('/webhook', async (req, res) => {
           }
 
           replyMessage = `মেসেঞ্জারে সরাসরি অর্ডার নিশ্চিত করতে নিচের তথ্যগুলো এক মেসেজে লিখে পাঠান ${selectedText}:\n\n` +
-                         `১. পণ্যের নাম ও সাইজ (যেমন: ১ কেজি / কম্বো প্যাক):\n` +
+                         `১. পণ্যের নাম ও সাইজ (যেমন: ১ কেজি / ৫০০ গ্রাম):\n` +
                          `২. আপনার নাম:\n` +
                          `৩. মোবাইল নম্বর:\n` +
                          `৪. পূর্ণাঙ্গ ঠিকানা:\n\n` +
@@ -185,7 +198,7 @@ app.post('/webhook', async (req, res) => {
                          `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
 
         } else {
-          // পণ্য খোঁজা এবং অর্ডার ম্যাচিং
+          // স্মার্ট প্রোডাক্ট সার্চ ও ফিল্টারিং
           const products = await fetchProductsFromWebsite();
 
           if (products && Array.isArray(products) && products.length > 0) {
@@ -217,21 +230,44 @@ app.post('/webhook', async (req, res) => {
                              `আপনার পছন্দের নাম লিখে জানান অথবা সব পণ্যের দাম দেখতে 'মূল্য তালিকা' লিখে মেসেজ দিন।`;
 
             } else {
-              const stopWords = ["ফুলের", "মধু", "এর", "দাম", "কত", "চাই", "নেব", "অর্ডার", "কেজি", "গ্রাম", "১কেজি", "১", "কেজী", "পণ্য"];
-              const searchWords = cleanUserText.split(/\s+/).filter(w => w.length > 1 && !stopWords.includes(w));
+              // টাইপ এবং সাইজ আলাদা করা
+              const flowerKeywords = ["সুন্দরবন", "সরিষা", "কালোজিরা", "খলিশা", "বড়ই", "ঘি", "গুড়", "কম্বো"];
+              const matchedFlowers = flowerKeywords.filter(f => cleanUserText.includes(f));
+              
+              const is1kg = cleanUserText.includes("১কেজি");
+              const is500g = cleanUserText.includes("৫০০গ্রাম");
 
-              const matchedProducts = products.filter(p => {
-                if (!p.name) return false;
-                const cleanProductName = normalizeBengaliText(p.name);
-                if (cleanProductName.includes(cleanUserText) || cleanUserText.includes(cleanProductName)) return true;
-                if (searchWords.length > 0) return searchWords.some(word => cleanProductName.includes(word));
-                return false;
-              });
+              let matchedProducts = [];
+
+              if (matchedFlowers.length > 0) {
+                // ১. আগে নির্দিষ্ট ফুল/পণ্যের নাম অনুযায়ী ফিল্টার
+                let flowerFiltered = products.filter(p => {
+                  if (!p.name) return false;
+                  const cleanPName = normalizeBengaliText(p.name);
+                  return matchedFlowers.some(f => cleanPName.includes(f));
+                });
+
+                // ২. যদি কাস্টমার সুনির্দিষ্ট সাইজ (১ কেজি বা ৫০০ গ্রাম) উল্লেখ করে
+                if (is1kg) {
+                  const sizeFiltered = flowerFiltered.filter(p => normalizeBengaliText(p.name).includes("১কেজি"));
+                  if (sizeFiltered.length > 0) flowerFiltered = sizeFiltered;
+                } else if (is500g) {
+                  const sizeFiltered = flowerFiltered.filter(p => normalizeBengaliText(p.name).includes("৫০০গ্রাম"));
+                  if (sizeFiltered.length > 0) flowerFiltered = sizeFiltered;
+                }
+
+                matchedProducts = flowerFiltered;
+
+              } else if (is1kg || is500g) {
+                // শুধু 'এক কেজি' বা 'হাফ কেজি' বললে
+                const targetSize = is1kg ? "১কেজি" : "৫০০গ্রাম";
+                matchedProducts = products.filter(p => p.name && normalizeBengaliText(p.name).includes(targetSize));
+              }
 
               if (matchedProducts.length > 0) {
                 const session = userSessions[senderPsid] || {};
 
-                // যদি কাস্টমার আগে থেকেই নাম-ঠিকানা দিয়ে রেখে থাকে
+                // কাস্টমার যদি আগে ঠিকানা দিয়ে থাকে এবং এখন সাইজ/পণ্য নিশ্চিত করে
                 if (session.pendingInfo) {
                   const chosenProduct = matchedProducts[0];
                   const productPrice = parseFloat(chosenProduct.price.toString().replace(/[^0-9.]/g, '')) || 0;
@@ -240,7 +276,7 @@ app.post('/webhook', async (req, res) => {
                   replyMessage = `🎉 আপনার অর্ডারটি সফলভাবে গ্রহণ করা হয়েছে!\n\n` +
                                  `📦 অর্ডারের বিবরণ:\n` +
                                  `• পণ্য: ${chosenProduct.name}\n` +
-                                 `• পণ্যের মূল্য: ৳${productPrice}\n` +
+                                 `• মূল্য: ৳${productPrice}\n` +
                                  `• ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n` +
                                  `──────────────────\n` +
                                  `💰 সর্বমোট বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice}\n\n` +
@@ -251,6 +287,7 @@ app.post('/webhook', async (req, res) => {
                   delete userSessions[senderPsid];
                 } else {
                   userSessions[senderPsid] = { matchedProducts: matchedProducts };
+                  
                   replyMessage = `আমাদের উপলব্ধ সবকটি সাইজ ও মূল্য তালিকা:\n\n`;
                   matchedProducts.forEach(p => { replyMessage += `• ${p.name} - ৳${p.price}\n\n`; });
                   replyMessage += `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
