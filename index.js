@@ -11,13 +11,12 @@ const DELIVERY_CHARGE = 120; // ডেলিভারি চার্জ ৳১�
 
 const userSessions = {};
 
-// বাংলা ফন্ট, স্পেস ও ইউনিকোড সঠিকভাবে মেলানোর স্মার্ট ফাংশন
 function normalizeBengaliText(text) {
   if (!text) return "";
   return text
     .normalize('NFC')
     .replace(/ে\u09BE|\u09BEে|ো/g, 'ো')
-    .replace(/সুন্দর\s*বনের|সুন্দর\s*বন/g, 'সুন্দরবন') // সুন্দর ও বন-এর মাঝের স্পেস ফিক্স
+    .replace(/সুন্দর\s*বনের|সুন্দর\s*বন/g, 'সুন্দরবন')
     .toLowerCase()
     .trim();
 }
@@ -83,6 +82,10 @@ app.post('/webhook', async (req, res) => {
         const isOrderKeyword = cleanUserText.includes("অর্ডার") || cleanUserText.includes("কিনব") || cleanUserText.includes("নিতে চাই") || cleanUserText.includes("order");
         const isGreeting = cleanUserText === "হাই" || cleanUserText === "হ্যালো" || cleanUserText === "hi" || cleanUserText === "hello" || cleanUserText.includes("আসসালামু") || cleanUserText === "hey";
         const isChartAsk = cleanUserText.includes("চার্ট") || cleanUserText.includes("মূল্য তালিকা") || cleanUserText.includes("মূল্যতালিকা") || cleanUserText.includes("প্রাইস লিস্ট") || cleanUserText.includes("সকল পণ্য") || cleanUserText.includes("সব পণ্য") || cleanUserText.includes("লিস্ট") || cleanUserText.includes("chart");
+        
+        // দাম কমানো বা ডিসকাউন্ট সংক্রান্ত প্রশ্ন
+        const isDiscountAsk = cleanUserText.includes("কমানো") || cleanUserText.includes("কম রাখা") || cleanUserText.includes("কম হবে") || cleanUserText.includes("ডিসকাউন্ট") || cleanUserText.includes("ছাড়") || cleanUserText.includes("discount") || cleanUserText.includes("কম নিয়েন") || cleanUserText.includes("কম রাখা যাবে");
+
         const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("কত") || cleanUserText === "মధు" || cleanUserText === "modhu" || cleanUserText === "honey";
         const isComboAsk = cleanUserText === "কম্বো" || cleanUserText === "কম্বো প্যাক" || cleanUserText === "অফার";
 
@@ -125,6 +128,13 @@ app.post('/webhook', async (req, res) => {
                          `• 'কম্বো প্যাক' (বিশেষ অফারগুলো দেখতে)\n\n` +
                          `স্যার, আপনি কোন পণ্যটি নিতে চাচ্ছেন?\n` +
                          `🌐 ওয়েবসাইট: https://prokritikshad.com`;
+
+        } else if (isDiscountAsk) {
+          // দাম কমানো বা ডিসকাউন্টের উত্তর
+          replyMessage = `স্যার, আমরা ১০০% খাঁটি ও প্রিমিয়াম কোয়ালিটির প্রাকৃতিক পণ্য সরাসরি উৎস থেকে সংগ্রহ করে একদম ন্যায্যমূল্যে সরবরাহ করি। তাই আমাদের পণ্যের দাম নির্ধারিত। 🌿\n\n` +
+                         `তবে আপনি যদি অফারে সাশ্রয়ী মূল্যে নিতে চান, আমাদের বিশেষ কম্বো প্যাকগুলো দেখতে পারেন!\n\n` +
+                         `🎁 কম্বো অফার দেখতে 'কম্বো' লিখে মেসেজ দিন।\n` +
+                         `🌐 অথবা ওয়েবসাইটে ভিজিট করুন: https://prokritikshad.com`;
 
         } else if (isChartAsk) {
           const products = await fetchProductsFromWebsite();
