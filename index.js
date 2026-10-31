@@ -18,7 +18,16 @@ function convertBengaliToEnglishNumbers(str) {
   return str.replace(/[০-৯]/g, (w) => banglaNums.indexOf(w));
 }
 
-// বাংলা টেক্সট ও সাইজ নরমালাইজেশন
+// ফোন নম্বর বের করার শতভাগ নির্ভুল ফাংশন
+function extractPhoneNumber(text) {
+  if (!text) return null;
+  const engText = convertBengaliToEnglishNumbers(text);
+  const cleanedDigits = engText.replace(/[^0-9]/g, '');
+  const match = cleanedDigits.match(/01[3-9]\d{8}/);
+  return match ? match[0] : null;
+}
+
+// বাংলা টেক্সট, টাইপো ও সাইজ নরমালাইজেশন
 function normalizeBengaliText(text) {
   if (!text) return "";
   return text
@@ -28,7 +37,10 @@ function normalizeBengaliText(text) {
     .replace(/\u09A2\u09BC/g, 'ঢ়')
     .replace(/\u09AF\u09BC/g, 'য়')
     .replace(/বরই/g, 'বড়ই')
-    .replace(/সুন্দর\s*বনের|সুন্দর\s*বন/g, 'সুন্দরবন')
+    .replace(/সুন্দর\s*বনের|সুন্দর\s*বন|শনদোরবোন/g, 'সুন্দরবন')
+    .replace(/সরিসা|শরিষা/g, 'সরিষা')
+    .replace(/কালজিরা|কালোজিরা/g, 'কালোজিরা')
+    .replace(/মদু|মধূ|মত/g, 'মধু') // 'মত' বা 'মদু' কে 'মধু' হিসেবে নরমালাইজ
     .replace(/এক\s*কেজি|১\s*কেজি|1\s*kg|1kg/gi, '১কেজি')
     .replace(/হাফ\s*কেজি|হাফ\s*কেজী|৫০০\s*গ্রাম|500g|500\s*gram|হাফ/gi, '৫০০গ্রাম')
     .toLowerCase()
@@ -92,10 +104,9 @@ app.post('/webhook', async (req, res) => {
         const cleanUserText = normalizeBengaliText(messageText);
         let replyMessage = "";
 
-        // ফোন নম্বর ডিটেকশন
-        const normalizedPhoneText = convertBengaliToEnglishNumbers(messageText).replace(/[\s-]/g, '');
-        const phoneRegex = /(01[3-9]\d{8})/;
-        const isPhoneProvided = phoneRegex.test(normalizedPhoneText);
+        // ফোন নম্বর বের করা
+        const detectedPhone = extractPhoneNumber(messageText);
+        const isPhoneProvided = detectedPhone !== null;
 
         const isOrderKeyword = cleanUserText.includes("অর্ডার") || cleanUserText.includes("কিনব") || cleanUserText.includes("নিতে চাই") || cleanUserText.includes("order");
         const isGreeting = cleanUserText === "হাই" || cleanUserText === "হ্যালো" || cleanUserText === "hi" || cleanUserText === "hello" || cleanUserText.includes("আসসালামু") || cleanUserText === "hey";
@@ -104,15 +115,14 @@ app.post('/webhook', async (req, res) => {
         const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("কত") || cleanUserText === "মధు" || cleanUserText === "modhu" || cleanUserText === "honey";
         const isComboAsk = cleanUserText === "কম্বো" || cleanUserText === "কম্বো প্যাক" || cleanUserText === "অফার";
 
-        // চলমান সেশন পাওয়ার ব্যবস্থা
-        const activeSession = userSessions[senderPsid];
+        const activeSession = userSessions[senderPsid] || {};
 
-        // শর্ট রিপ্লাই চেক (হাফ, 500, 1, ১ ইত্যাদি)
+        // শর্ট সাইজ মেসেজ চেক (যেমন: "হাফ", "500", "1", "১")
         const is1kgIntent = cleanUserText === "১" || cleanUserText === "1" || cleanUserText.includes("১কেজি") || cleanUserText === "এক";
         const is500gIntent = cleanUserText === "হাফ" || cleanUserText === "500" || cleanUserText === "৫০০" || cleanUserText.includes("৫০০গ্রাম") || cleanUserText === "half";
 
-        // কাস্টমার যদি শর্ট সাইজ মেসেজ দেয় (যেমন: "হাফ", "500", "1") এবং আগে সেশন থাকে
-        if (activeSession && activeSession.matchedProducts && activeSession.matchedProducts.length > 0 && (is1kgIntent || is500gIntent)) {
+        // ১. কাস্টমার যদি শর্ট সাইজ মেসেজ দেয় এবং আগে মেমোরিতে পণ্য থাকে
+        if (activeSession.matchedProducts && activeSession.matchedProducts.length > 0 && (is1kgIntent || is500gIntent)) {
           let selectedProduct = null;
           if (is1kgIntent) {
             selectedProduct = activeSession.matchedProducts.find(p => normalizeBengaliText(p.name).includes("১কেজি")) || activeSession.matchedProducts[0];
@@ -138,6 +148,7 @@ app.post('/webhook', async (req, res) => {
               delete userSessions[senderPsid];
             } else {
               activeSession.matchedProducts = [selectedProduct];
+              userSessions[senderPsid] = activeSession;
               replyMessage = `আপনি নির্বাচন করেছেন: ${selectedProduct.name} (৳${productPrice})\n\n` +
                              `অর্ডার সম্পন্ন করতে অনুগ্রহ করে আপনার নাম, মোবাইল নম্বর ও পূর্ণাঙ্গ ঠিকানা লিখে মেসেজ দিন।\n\n` +
                              `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}`;
@@ -145,11 +156,11 @@ app.post('/webhook', async (req, res) => {
           }
 
         } else if (isPhoneProvided) {
-          // ১. কাস্টমার ফোন নম্বর ও ঠিকানা পাঠালে
-          const session = userSessions[senderPsid] || {};
-          session.pendingInfo = messageText;
+          // ২. কাস্টমার ফোন নম্বর ও ঠিকানা দিলে
+          activeSession.pendingInfo = messageText;
+          userSessions[senderPsid] = activeSession;
 
-          const matched = session.matchedProducts || [];
+          const matched = activeSession.matchedProducts || [];
 
           let singleSelectedProduct = null;
           if (matched.length === 1) {
@@ -179,13 +190,11 @@ app.post('/webhook', async (req, res) => {
 
             delete userSessions[senderPsid];
           } else if (matched.length > 1) {
-            userSessions[senderPsid] = session;
             let optionsText = matched.map(p => `• ${p.name} - ৳${p.price}`).join('\n');
             replyMessage = `🎉 আপনার নাম, ঠিকানা ও মোবাইল নম্বর আমরা পেয়েছি!\n\n` +
                            `অনুগ্রহ করে জানান আপনি কোন সাইজটি নিতে চাচ্ছেন?\n${optionsText}\n\n` +
-                           `সাইজটি (যেমন: '১ কেজি' বা '৫০০ গ্রাম' বা 'হাফ') জানালেই আমরা অর্ডার নিশ্চিত করে দেবো।`;
+                           `সাইজটি (যেমন: '১ কেজি' বা '৫০০ গ্রাম') জানালেই আমরা অর্ডার নিশ্চিত করে দেবো।`;
           } else {
-            userSessions[senderPsid] = session;
             replyMessage = `🎉 আপনার নাম, ঠিকানা ও মোবাইল নম্বর আমরা পেয়েছি!\n\n` +
                            `স্যার, আপনি কোন পণ্যটি এবং কতটুকু (যেমন: 'সুন্দরবনের মধু ১ কেজি' বা 'গাওয়া ঘি') নিতে চাচ্ছেন? অনুগ্রহ করে নির্দিষ্ট নাম ও সাইজটি জানান।`;
           }
@@ -226,10 +235,9 @@ app.post('/webhook', async (req, res) => {
           }
 
         } else if (isOrderKeyword) {
-          const session = userSessions[senderPsid];
           let selectedText = "";
-          if (session && session.matchedProducts && session.matchedProducts.length > 0) {
-            selectedText = `\n(আপনার নির্বাচনকৃত পণ্য: ${session.matchedProducts[0].name})`;
+          if (activeSession.matchedProducts && activeSession.matchedProducts.length > 0) {
+            selectedText = `\n(আপনার নির্বাচনকৃত পণ্য: ${activeSession.matchedProducts[0].name})`;
           }
 
           replyMessage = `মেসেঞ্জারে সরাসরি অর্ডার নিশ্চিত করতে নিচের তথ্যগুলো এক মেসেজে লিখে পাঠান ${selectedText}:\n\n` +
@@ -241,7 +249,7 @@ app.post('/webhook', async (req, res) => {
                          `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
 
         } else {
-          // স্মার্ট প্রোডাক্ট সার্চ ও ফিল্টারিং
+          // ৩. প্রোডাক্ট সার্চ
           const products = await fetchProductsFromWebsite();
 
           if (products && Array.isArray(products) && products.length > 0) {
@@ -254,7 +262,7 @@ app.post('/webhook', async (req, res) => {
               });
 
               if (comboProducts.length > 0) {
-                userSessions[senderPsid] = { matchedProducts: comboProducts };
+                userSessions[senderPsid] = { ...activeSession, matchedProducts: comboProducts };
                 replyMessage = `আমাদের স্পেশাল কম্বো প্যাক ও অফারসমূহ:\n\n`;
                 comboProducts.forEach(p => { replyMessage += `• ${p.name} - ৳${p.price}\n\n`; });
                 replyMessage += `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n📦 অর্ডার করতে আপনার নাম, ঠিকানা ও মোবাইল নম্বর লিখে দিন।`;
@@ -273,7 +281,6 @@ app.post('/webhook', async (req, res) => {
                              `আপনার পছন্দের নাম লিখে জানান অথবা সব পণ্যের দাম দেখতে 'মূল্য তালিকা' লিখে মেসেজ দিন।`;
 
             } else {
-              // টাইপ এবং সাইজ সার্চ
               const flowerKeywords = ["সুন্দরবন", "সরিষা", "কালোজিরা", "খলিশা", "বড়ই", "বরই", "ঘি", "গুড়", "কম্বো"];
               const matchedFlowers = flowerKeywords.filter(f => cleanUserText.includes(f));
               
@@ -313,9 +320,8 @@ app.post('/webhook', async (req, res) => {
               }
 
               if (matchedProducts.length > 0) {
-                const session = userSessions[senderPsid] || {};
-
-                if (session.pendingInfo) {
+                // কাস্টমার যদি আগে থেকেই নাম-ঠিকানা (pendingInfo) দিয়ে থাকে
+                if (activeSession.pendingInfo) {
                   const chosenProduct = matchedProducts[0];
                   const productPrice = parseFloat(chosenProduct.price.toString().replace(/[^0-9.]/g, '')) || 0;
                   const totalPrice = productPrice + DELIVERY_CHARGE;
@@ -327,13 +333,13 @@ app.post('/webhook', async (req, res) => {
                                  `• ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n` +
                                  `──────────────────\n` +
                                  `💰 সর্বমোট বিল (ক্যাশ অন ডেলিভারি): ৳${totalPrice}\n\n` +
-                                 `📝 আপনার দেওয়া তথ্য:\n${session.pendingInfo}\n\n` +
+                                 `📝 আপনার দেওয়া তথ্য:\n${activeSession.pendingInfo}\n\n` +
                                  `আমাদের প্রতিনিধি কল করে আপনার অর্ডারটি নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
                                  `📞 হেল্পলাইন/হোয়াটসঅ্যাপ: 01335556732`;
                   
                   delete userSessions[senderPsid];
                 } else {
-                  userSessions[senderPsid] = { matchedProducts: matchedProducts };
+                  userSessions[senderPsid] = { ...activeSession, matchedProducts: matchedProducts };
                   
                   replyMessage = `আমাদের উপলব্ধ সবকটি সাইজ ও মূল্য তালিকা:\n\n`;
                   matchedProducts.forEach(p => { replyMessage += `• ${p.name} - ৳${p.price}\n\n`; });
