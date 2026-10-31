@@ -18,13 +18,26 @@ function convertBengaliToEnglishNumbers(str) {
   return str.replace(/[০-৯]/g, (w) => banglaNums.indexOf(w));
 }
 
-// ফোন নম্বর বের করার নির্ভুল ফাংশন
+// ফোন নম্বর বের করার শতভাগ নির্ভুল ফাংশন
 function extractPhoneNumber(text) {
   if (!text) return null;
   const engText = convertBengaliToEnglishNumbers(text);
   const cleanedDigits = engText.replace(/[^0-9]/g, '');
   const match = cleanedDigits.match(/01[3-9]\d{8}/);
   return match ? match[0] : null;
+}
+
+// ওয়েবসাইটে অটোমেটিক অর্ডার ডাটা সেভ করার API ফাংশন
+async function saveOrderToWebsite(orderData) {
+  try {
+    await fetch('https://prokritikshad.com/save_order.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderData)
+    });
+  } catch (err) {
+    console.error('Error saving order to website database:', err);
+  }
 }
 
 // বাংলা টেক্সট, প্রাইজ/দাম টাইপো ও সাইজ নরমালাইজেশন
@@ -37,7 +50,7 @@ function normalizeBengaliText(text) {
     .replace(/\u09A2\u09BC/g, 'ঢ়')
     .replace(/\u09AF\u09BC/g, 'য়')
     .replace(/বরই/g, 'বড়ই')
-    .replace(/প্রাইজ|প্রাইছ|পরাইস|পরাইজ|লেখা|লেখক|বলেন|বলো/g, 'প্রাইস') // প্রাইজ/লেখক/বলেন নরমালাইজেশন
+    .replace(/প্রাইজ|প্রাইছ|পরাইস|পরাইজ|লেখা|লেখক|বলেন|বলো/g, 'প্রাইস')
     .replace(/সুন্দর\s*বনের|সুন্দর\s*বন|শনদোরবোন/g, 'সুন্দরবন')
     .replace(/সরিসা|শরিষা/g, 'সরিষা')
     .replace(/কালজিরা|কালোজিরা/g, 'কালোজিরা')
@@ -113,7 +126,6 @@ app.post('/webhook', async (req, res) => {
         const isChartAsk = cleanUserText.includes("চার্ট") || cleanUserText.includes("মূল্য তালিকা") || cleanUserText.includes("মূল্যতালিকা") || cleanUserText.includes("প্রাইস লিস্ট") || cleanUserText.includes("সকল পণ্য") || cleanUserText.includes("সব পণ্য") || cleanUserText.includes("লিস্ট") || cleanUserText.includes("chart");
         const isDiscountAsk = cleanUserText.includes("কমানো") || cleanUserText.includes("কম রাখা") || cleanUserText.includes("কম হবে") || cleanUserText.includes("ডিসকাউন্ট") || cleanUserText.includes("ছাড়") || cleanUserText.includes("discount") || cleanUserText.includes("কম নিয়েন") || cleanUserText.includes("কম রাখা যাবে");
         
-        // দাম / প্রাইস / প্রাইজ / রেট সংক্রান্ত বিস্তৃত ডিটেকশন
         const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("প্রাইস") || cleanUserText.includes("রেট") || cleanUserText.includes("price") || cleanUserText.includes("rate") || cleanUserText.includes("কত") || cleanUserText === "মధు" || cleanUserText === "modhu" || cleanUserText === "honey";
         
         const isComboAsk = cleanUserText === "কম্বো" || cleanUserText === "কম্বো প্যাক" || cleanUserText === "অফার";
@@ -123,7 +135,7 @@ app.post('/webhook', async (req, res) => {
         const is1kgIntent = cleanUserText === "১" || cleanUserText === "1" || cleanUserText.includes("১কেজি") || cleanUserText === "এক";
         const is500gIntent = cleanUserText === "হাফ" || cleanUserText === "500" || cleanUserText === "৫০০" || cleanUserText.includes("৫০০গ্রাম") || cleanUserText === "half";
 
-        // শর্ট সাইজ রিপ্লাই চেক
+        // শর্ট সাইজ রিপ্লাই চেক এবং ডাটাবেজ সেভ
         if (activeSession.matchedProducts && activeSession.matchedProducts.length > 0 && (is1kgIntent || is500gIntent)) {
           let selectedProduct = null;
           if (is1kgIntent) {
@@ -147,6 +159,17 @@ app.post('/webhook', async (req, res) => {
                              `📝 আপনার দেওয়া তথ্য:\n${activeSession.pendingInfo}\n\n` +
                              `আমাদের প্রতিনিধি কল করে আপনার অর্ডারটি নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
                              `📞 হেল্পলাইন/হোয়াটসঅ্যাপ: 01335556732`;
+
+              // ডাটাবেজে অটো-সেভ
+              saveOrderToWebsite({
+                customer_phone: extractPhoneNumber(activeSession.pendingInfo) || '',
+                product_name: selectedProduct.name,
+                product_price: productPrice,
+                delivery_charge: DELIVERY_CHARGE,
+                total_price: totalPrice,
+                raw_info: activeSession.pendingInfo
+              });
+
               delete userSessions[senderPsid];
             } else {
               activeSession.matchedProducts = [selectedProduct];
@@ -158,7 +181,7 @@ app.post('/webhook', async (req, res) => {
           }
 
         } else if (isPhoneProvided) {
-          // মোবাইল নম্বর ও ঠিকানা দিলে
+          // মোবাইল নম্বর ও ঠিকানা দিলে সেভ
           activeSession.pendingInfo = messageText;
           userSessions[senderPsid] = activeSession;
 
@@ -189,6 +212,16 @@ app.post('/webhook', async (req, res) => {
                            `📝 আপনার দেওয়া তথ্য:\n${messageText}\n\n` +
                            `আমাদের প্রতিনিধি কল করে আপনার অর্ডারটি নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
                            `📞 হেল্পলাইন/হোয়াটসঅ্যাপ: 01335556732`;
+
+            // ডাটাবেজে অটো-সেভ
+            saveOrderToWebsite({
+              customer_phone: detectedPhone || '',
+              product_name: singleSelectedProduct.name,
+              product_price: productPrice,
+              delivery_charge: DELIVERY_CHARGE,
+              total_price: totalPrice,
+              raw_info: messageText
+            });
 
             delete userSessions[senderPsid];
           } else if (matched.length > 1) {
@@ -237,7 +270,6 @@ app.post('/webhook', async (req, res) => {
           }
 
         } else if (isPriceAsk && !cleanUserText.includes("সরিষা") && !cleanUserText.includes("কালোজিরা") && !cleanUserText.includes("সুন্দরবন") && !cleanUserText.includes("খলিশা") && !cleanUserText.includes("বড়ই") && !cleanUserText.includes("বরই") && !cleanUserText.includes("ঘি") && !cleanUserText.includes("গুড়")) {
-          // দাম / প্রাইস / প্রাইজ কতো বললে কম্বো অফারসহ উত্তর দেওয়া
           const products = await fetchProductsFromWebsite();
           let comboText = "";
 
@@ -361,7 +393,17 @@ app.post('/webhook', async (req, res) => {
                                  `📝 আপনার দেওয়া তথ্য:\n${activeSession.pendingInfo}\n\n` +
                                  `আমাদের প্রতিনিধি কল করে আপনার অর্ডারটি নিশ্চিত করবেন। ধন্যবাদ 'প্রাকৃতিক স্বাদ'-এর সাথে থাকার জন্য! 🌿\n\n` +
                                  `📞 হেল্পলাইন/হোয়াটসঅ্যাপ: 01335556732`;
-                  
+
+                  // ডাটাবেজে অটো-সেভ
+                  saveOrderToWebsite({
+                    customer_phone: extractPhoneNumber(activeSession.pendingInfo) || '',
+                    product_name: chosenProduct.name,
+                    product_price: productPrice,
+                    delivery_charge: DELIVERY_CHARGE,
+                    total_price: totalPrice,
+                    raw_info: activeSession.pendingInfo
+                  });
+
                   delete userSessions[senderPsid];
                 } else {
                   userSessions[senderPsid] = { ...activeSession, matchedProducts: matchedProducts };
