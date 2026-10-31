@@ -18,7 +18,7 @@ function convertBengaliToEnglishNumbers(str) {
   return str.replace(/[০-৯]/g, (w) => banglaNums.indexOf(w));
 }
 
-// ফোন নম্বর বের করার শতভাগ নির্ভুল ফাংশন
+// ফোন নম্বর বের করার নির্ভুল ফাংশন
 function extractPhoneNumber(text) {
   if (!text) return null;
   const engText = convertBengaliToEnglishNumbers(text);
@@ -27,20 +27,21 @@ function extractPhoneNumber(text) {
   return match ? match[0] : null;
 }
 
-// বাংলা টেক্সট, টাইপো ও সাইজ নরমালাইজেশন
+// বাংলা টেক্সট, প্রাইজ/দাম টাইপো ও সাইজ নরমালাইজেশন
 function normalizeBengaliText(text) {
   if (!text) return "";
   return text
     .normalize('NFC')
-    .replace(/ে\u09BE|\u09BEে|ো/g, 'ো')
+    .replace(/ে\u09BE|\u09BEe|ো/g, 'ো')
     .replace(/\u09A1\u09BC/g, 'ড়')
     .replace(/\u09A2\u09BC/g, 'ঢ়')
     .replace(/\u09AF\u09BC/g, 'য়')
     .replace(/বরই/g, 'বড়ই')
+    .replace(/প্রাইজ|প্রাইছ|পরাইস|পরাইজ|লেখা|লেখক|বলেন|বলো/g, 'প্রাইস') // প্রাইজ/লেখক/বলেন নরমালাইজেশন
     .replace(/সুন্দর\s*বনের|সুন্দর\s*বন|শনদোরবোন/g, 'সুন্দরবন')
     .replace(/সরিসা|শরিষা/g, 'সরিষা')
     .replace(/কালজিরা|কালোজিরা/g, 'কালোজিরা')
-    .replace(/মদু|মধূ|মত/g, 'মধু') // 'মত' বা 'মদু' কে 'মধু' হিসেবে নরমালাইজ
+    .replace(/মদু|মধূ|মত/g, 'মধু')
     .replace(/এক\s*কেজি|১\s*কেজি|1\s*kg|1kg/gi, '১কেজি')
     .replace(/হাফ\s*কেজি|হাফ\s*কেজী|৫০০\s*গ্রাম|500g|500\s*gram|হাফ/gi, '৫০০গ্রাম')
     .toLowerCase()
@@ -104,7 +105,6 @@ app.post('/webhook', async (req, res) => {
         const cleanUserText = normalizeBengaliText(messageText);
         let replyMessage = "";
 
-        // ফোন নম্বর বের করা
         const detectedPhone = extractPhoneNumber(messageText);
         const isPhoneProvided = detectedPhone !== null;
 
@@ -112,16 +112,18 @@ app.post('/webhook', async (req, res) => {
         const isGreeting = cleanUserText === "হাই" || cleanUserText === "হ্যালো" || cleanUserText === "hi" || cleanUserText === "hello" || cleanUserText.includes("আসসালামু") || cleanUserText === "hey";
         const isChartAsk = cleanUserText.includes("চার্ট") || cleanUserText.includes("মূল্য তালিকা") || cleanUserText.includes("মূল্যতালিকা") || cleanUserText.includes("প্রাইস লিস্ট") || cleanUserText.includes("সকল পণ্য") || cleanUserText.includes("সব পণ্য") || cleanUserText.includes("লিস্ট") || cleanUserText.includes("chart");
         const isDiscountAsk = cleanUserText.includes("কমানো") || cleanUserText.includes("কম রাখা") || cleanUserText.includes("কম হবে") || cleanUserText.includes("ডিসকাউন্ট") || cleanUserText.includes("ছাড়") || cleanUserText.includes("discount") || cleanUserText.includes("কম নিয়েন") || cleanUserText.includes("কম রাখা যাবে");
-        const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("কত") || cleanUserText === "মధు" || cleanUserText === "modhu" || cleanUserText === "honey";
+        
+        // দাম / প্রাইস / প্রাইজ / রেট সংক্রান্ত বিস্তৃত ডিটেকশন
+        const isPriceAsk = cleanUserText.includes("দাম") || cleanUserText.includes("প্রাইস") || cleanUserText.includes("রেট") || cleanUserText.includes("price") || cleanUserText.includes("rate") || cleanUserText.includes("কত") || cleanUserText === "মధు" || cleanUserText === "modhu" || cleanUserText === "honey";
+        
         const isComboAsk = cleanUserText === "কম্বো" || cleanUserText === "কম্বো প্যাক" || cleanUserText === "অফার";
 
         const activeSession = userSessions[senderPsid] || {};
 
-        // শর্ট সাইজ মেসেজ চেক (যেমন: "হাফ", "500", "1", "১")
         const is1kgIntent = cleanUserText === "১" || cleanUserText === "1" || cleanUserText.includes("১কেজি") || cleanUserText === "এক";
         const is500gIntent = cleanUserText === "হাফ" || cleanUserText === "500" || cleanUserText === "৫০০" || cleanUserText.includes("৫০০গ্রাম") || cleanUserText === "half";
 
-        // ১. কাস্টমার যদি শর্ট সাইজ মেসেজ দেয় এবং আগে মেমোরিতে পণ্য থাকে
+        // শর্ট সাইজ রিপ্লাই চেক
         if (activeSession.matchedProducts && activeSession.matchedProducts.length > 0 && (is1kgIntent || is500gIntent)) {
           let selectedProduct = null;
           if (is1kgIntent) {
@@ -156,7 +158,7 @@ app.post('/webhook', async (req, res) => {
           }
 
         } else if (isPhoneProvided) {
-          // ২. কাস্টমার ফোন নম্বর ও ঠিকানা দিলে
+          // মোবাইল নম্বর ও ঠিকানা দিলে
           activeSession.pendingInfo = messageText;
           userSessions[senderPsid] = activeSession;
 
@@ -234,6 +236,40 @@ app.post('/webhook', async (req, res) => {
             replyMessage = `আসসালামু আলাইকুম! আমাদের সকল পণ্যের তালিকা দেখতে ব্রাউজ করুন: https://prokritikshad.com`;
           }
 
+        } else if (isPriceAsk && !cleanUserText.includes("সরিষা") && !cleanUserText.includes("কালোজিরা") && !cleanUserText.includes("সুন্দরবন") && !cleanUserText.includes("খলিশা") && !cleanUserText.includes("বড়ই") && !cleanUserText.includes("বরই") && !cleanUserText.includes("ঘি") && !cleanUserText.includes("গুড়")) {
+          // দাম / প্রাইস / প্রাইজ কতো বললে কম্বো অফারসহ উত্তর দেওয়া
+          const products = await fetchProductsFromWebsite();
+          let comboText = "";
+
+          if (products && Array.isArray(products) && products.length > 0) {
+            const comboProducts = products.filter(p => {
+              if (!p.name) return false;
+              const cleanName = normalizeBengaliText(p.name);
+              return cleanName.includes("কম্বো") || cleanName.includes("প্যাক") || cleanName.includes("ফ্রি") || cleanName.includes("+") || cleanName.includes("অফার");
+            });
+
+            if (comboProducts.length > 0) {
+              userSessions[senderPsid] = { ...activeSession, matchedProducts: comboProducts };
+              comboText = `🎁 আমাদের রানিং স্পেশাল কম্বো অফার:\n`;
+              comboProducts.forEach(p => {
+                comboText += `• ${p.name} - ৳${p.price}\n`;
+              });
+              comboText += `\n`;
+            }
+          }
+
+          replyMessage = `আসসালামু আলাইকুম স্যার! 🌿\n\n` +
+                         comboText +
+                         `আমাদের অন্যান্য প্রাকৃতিক পণ্যসমূহ:\n` +
+                         `• সুন্দরবনের মধু\n` +
+                         `• কালোজিরা ফুলের মধু\n` +
+                         `• সরিষা ফুলের মধু\n` +
+                         `• খলিশা ও বড়ই ফুলের মধু\n` +
+                         `• গাওয়া ঘি / খেজুরের গুড়\n\n` +
+                         `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
+                         `📦 যেকোনো পণ্য বা কম্বো অর্ডার করতে আপনার নাম, মোবাইল নম্বর ও পূর্ণাঙ্গ ঠিকানা লিখে মেসেজ দিন।\n` +
+                         `🌐 অথবা ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
+
         } else if (isOrderKeyword) {
           let selectedText = "";
           if (activeSession.matchedProducts && activeSession.matchedProducts.length > 0) {
@@ -241,7 +277,7 @@ app.post('/webhook', async (req, res) => {
           }
 
           replyMessage = `মেসেঞ্জারে সরাসরি অর্ডার নিশ্চিত করতে নিচের তথ্যগুলো এক মেসেজে লিখে পাঠান ${selectedText}:\n\n` +
-                         `১. পণ্যের নাম ও সাইজ (যেমন: ১ কেজি / ৫০০ গ্রাম):\n` +
+                         `১. পণ্যের নাম ও সাইজ (যেমন: ১ কেজি / কম্বো প্যাক):\n` +
                          `২. আপনার নাম:\n` +
                          `৩. মোবাইল নম্বর:\n` +
                          `৪. পূর্ণাঙ্গ ঠিকানা:\n\n` +
@@ -249,7 +285,7 @@ app.post('/webhook', async (req, res) => {
                          `🌐 অথবা ওয়েবসাইটে সরাসরি অর্ডার করুন: https://prokritikshad.com`;
 
         } else {
-          // ৩. প্রোডাক্ট সার্চ
+          // প্রোডাক্ট সার্চ
           const products = await fetchProductsFromWebsite();
 
           if (products && Array.isArray(products) && products.length > 0) {
@@ -269,16 +305,6 @@ app.post('/webhook', async (req, res) => {
               } else {
                 replyMessage = `আমাদের সাধারণ পণ্যসমূহ দেখতে 'মূল্য তালিকা' লিখে মেসেজ দিন।\n\n🌐 পুরো ওয়েবসাইট ব্রাউজ করুন: https://prokritikshad.com`;
               }
-
-            } else if (isPriceAsk && !cleanUserText.includes("সরিষা") && !cleanUserText.includes("কালোজিরা") && !cleanUserText.includes("সুন্দরবন") && !cleanUserText.includes("খলিশা") && !cleanUserText.includes("বড়ই") && !cleanUserText.includes("বরই") && !cleanUserText.includes("ঘি") && !cleanUserText.includes("গুড়")) {
-              replyMessage = `স্যার, আপনি কোন মধুটি নিতে চাচ্ছেন? আমাদের কাছে পাওয়া যাচ্ছে:\n\n` +
-                             `• সরিষা ফুলের মধু\n` +
-                             `• কালোজিরা ফুলের মধু\n` +
-                             `• সুন্দরবনের মধু\n` +
-                             `• খলিশা ফুলের মধু\n` +
-                             `• বড়ই ফুলের মধু\n` +
-                             `• স্পেশাল কম্বো প্যাক (অফার)\n\n` +
-                             `আপনার পছন্দের নাম লিখে জানান অথবা সব পণ্যের দাম দেখতে 'মূল্য তালিকা' লিখে মেসেজ দিন।`;
 
             } else {
               const flowerKeywords = ["সুন্দরবন", "সরিষা", "কালোজিরা", "খলিশা", "বড়ই", "বরই", "ঘি", "গুড়", "কম্বো"];
@@ -320,7 +346,6 @@ app.post('/webhook', async (req, res) => {
               }
 
               if (matchedProducts.length > 0) {
-                // কাস্টমার যদি আগে থেকেই নাম-ঠিকানা (pendingInfo) দিয়ে থাকে
                 if (activeSession.pendingInfo) {
                   const chosenProduct = matchedProducts[0];
                   const productPrice = parseFloat(chosenProduct.price.toString().replace(/[^0-9.]/g, '')) || 0;
@@ -341,7 +366,7 @@ app.post('/webhook', async (req, res) => {
                 } else {
                   userSessions[senderPsid] = { ...activeSession, matchedProducts: matchedProducts };
                   
-                  replyMessage = `আমাদের উপলব্ধ সবকটি সাইজ ও মূল্য তালিকা:\n\n`;
+                  replyMessage = `আমাদের উপলব্ধ সব কয়টি সাইজ ও মূল্য তালিকা:\n\n`;
                   matchedProducts.forEach(p => { replyMessage += `• ${p.name} - ৳${p.price}\n\n`; });
                   replyMessage += `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
                                   `📦 অর্ডার করতে আপনার নাম, মোবাইল নম্বর, পূর্ণাঙ্গ ঠিকানা এবং কাঙ্ক্ষিত পণ্যটি লিখে মেসেজ দিন।\n` +
