@@ -341,7 +341,7 @@ app.post('/webhook', async (req, res) => {
                 } else {
                   userSessions[senderPsid] = { ...activeSession, matchedProducts: matchedProducts };
                   
-                  replyMessage = `আমাদের উপলব্ধ সবকটি সাইজ ও মূল্য তালিকা:\n\n`;
+                  replyMessage = `আমাদের উপলব্ধ সব কয়টি সাইজ ও মূল্য তালিকা:\n\n`;
                   matchedProducts.forEach(p => { replyMessage += `• ${p.name} - ৳${p.price}\n\n`; });
                   replyMessage += `🚚 ডেলিভারি চার্জ: ৳${DELIVERY_CHARGE}\n\n` +
                                   `📦 অর্ডার করতে আপনার নাম, মোবাইল নম্বর, পূর্ণাঙ্গ ঠিকানা এবং কাঙ্ক্ষিত পণ্যটি লিখে মেসেজ দিন।\n` +
